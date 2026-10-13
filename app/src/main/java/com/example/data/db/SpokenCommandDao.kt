@@ -29,6 +29,12 @@ interface SpokenCommandDao {
     @Delete
     suspend fun delete(command: SpokenCommand)
 
+    @Query("SELECT * FROM spoken_commands")
+    suspend fun getAllCommandsList(): List<SpokenCommand>
+
+    @Query("DELETE FROM spoken_commands")
+    suspend fun deleteAllCommands(): Int
+
     @Query("SELECT COUNT(*) FROM spoken_commands")
     suspend fun getCount(): Int
 }

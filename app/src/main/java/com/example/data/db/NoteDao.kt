@@ -65,6 +65,12 @@ interface NoteDao {
     @Query("DELETE FROM notes WHERE isDeleted = 1")
     suspend fun emptyTrash(): Int
 
+    @Query("SELECT * FROM notes")
+    suspend fun getAllNotesList(): List<Note>
+
+    @Query("DELETE FROM notes")
+    suspend fun deleteAllNotes(): Int
+
     @Query("SELECT COUNT(*) FROM notes")
     suspend fun getNoteCount(): Int
 }

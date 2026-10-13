@@ -34,6 +34,10 @@ class NoteRepository(private val noteDao: NoteDao) {
 
     suspend fun deleteById(id: Long) = noteDao.deleteById(id)
 
+    suspend fun getAllNotesList(): List<Note> = noteDao.getAllNotesList()
+
+    suspend fun deleteAllNotes(): Int = noteDao.deleteAllNotes()
+
     suspend fun autoCleanTrash(olderThanTimestamp: Long): Int = noteDao.autoCleanTrash(olderThanTimestamp)
 
     suspend fun emptyTrash(): Int = noteDao.emptyTrash()

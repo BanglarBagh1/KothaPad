@@ -17,10 +17,9 @@ const server = http.createServer((req, res) => {
   }
 
   // APK download endpoints
-  if (pathname === '/KothaPad.apk' || pathname === '/app-debug.apk' || pathname === '/download') {
+  if (pathname === '/KothaPad.apk' || pathname === '/download') {
     const candidates = [
       path.join(ROOT_DIR, 'KothaPad.apk'),
-      path.join(ROOT_DIR, 'app-debug.apk'),
       path.join(ROOT_DIR, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
     ];
 

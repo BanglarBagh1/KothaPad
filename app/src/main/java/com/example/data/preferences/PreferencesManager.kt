@@ -10,7 +10,10 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val Context.dataStore by preferencesDataStore(name = "kothapad_settings")
 
@@ -369,5 +372,122 @@ class PreferencesManager(private val context: Context) {
             setLastActiveFolderSync(folder)
             context.dataStore.edit { it[KEY_LAST_ACTIVE_FOLDER] = folder }
         }
+    }
+
+    suspend fun getAllPreferencesForBackup(): JSONObject {
+        val prefs = context.dataStore.data.first()
+        val prefsArray = JSONArray()
+        for ((key, value) in prefs.asMap()) {
+            val obj = JSONObject()
+            obj.put("key", key.name)
+            when (value) {
+                is Boolean -> {
+                    obj.put("type", "BOOLEAN")
+                    obj.put("value", value)
+                }
+                is Int -> {
+                    obj.put("type", "INT")
+                    obj.put("value", value)
+                }
+                is Long -> {
+                    obj.put("type", "LONG")
+                    obj.put("value", value)
+                }
+                is Float -> {
+                    obj.put("type", "FLOAT")
+                    obj.put("value", value.toDouble())
+                }
+                is Double -> {
+                    obj.put("type", "DOUBLE")
+                    obj.put("value", value)
+                }
+                is String -> {
+                    obj.put("type", "STRING")
+                    obj.put("value", value)
+                }
+                is Set<*> -> {
+                    obj.put("type", "STRING_SET")
+                    val arr = JSONArray()
+                    for (s in value) {
+                        if (s is String) arr.put(s)
+                    }
+                    obj.put("value", arr)
+                }
+            }
+            prefsArray.put(obj)
+        }
+
+        val root = JSONObject()
+        root.put("preferences", prefsArray)
+
+        val syncObj = JSONObject()
+        for ((key, value) in syncPrefs.all) {
+            when (value) {
+                is Boolean -> syncObj.put(key, value)
+                is Int -> syncObj.put(key, value)
+                is Long -> syncObj.put(key, value)
+                is Float -> syncObj.put(key, value.toDouble())
+                is String -> syncObj.put(key, value)
+                is Set<*> -> {
+                    val arr = JSONArray()
+                    for (s in value) if (s is String) arr.put(s)
+                    syncObj.put(key, arr)
+                }
+            }
+        }
+        root.put("syncPrefs", syncObj)
+        return root
+    }
+
+    suspend fun restoreAllPreferencesFromBackup(root: JSONObject) {
+        val prefsArray = root.optJSONArray("preferences") ?: JSONArray()
+        context.dataStore.edit { preferences ->
+            preferences.clear()
+            for (i in 0 until prefsArray.length()) {
+                val item = prefsArray.getJSONObject(i)
+                val keyName = item.getString("key")
+                val type = item.getString("type")
+                when (type) {
+                    "BOOLEAN" -> preferences[booleanPreferencesKey(keyName)] = item.getBoolean("value")
+                    "INT" -> preferences[intPreferencesKey(keyName)] = item.getInt("value")
+                    "LONG" -> preferences[longPreferencesKey(keyName)] = item.getLong("value")
+                    "FLOAT" -> preferences[floatPreferencesKey(keyName)] = item.getDouble("value").toFloat()
+                    "STRING" -> preferences[stringPreferencesKey(keyName)] = item.getString("value")
+                    "STRING_SET" -> {
+                        val arr = item.getJSONArray("value")
+                        val set = mutableSetOf<String>()
+                        for (j in 0 until arr.length()) {
+                            set.add(arr.getString(j))
+                        }
+                        preferences[stringSetPreferencesKey(keyName)] = set
+                    }
+                }
+            }
+        }
+
+        val syncObj = root.optJSONObject("syncPrefs")
+        val editor = syncPrefs.edit().clear()
+        if (syncObj != null) {
+            val keys = syncObj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val value = syncObj.get(key)
+                when (value) {
+                    is Boolean -> editor.putBoolean(key, value)
+                    is Int -> editor.putInt(key, value)
+                    is Long -> editor.putLong(key, value)
+                    is Double -> editor.putFloat(key, value.toFloat())
+                    is String -> editor.putString(key, value)
+                    is JSONArray -> {
+                        val set = mutableSetOf<String>()
+                        for (j in 0 until value.length()) {
+                            set.add(value.getString(j))
+                        }
+                        editor.putStringSet(key, set)
+                    }
+                }
+            }
+        }
+        editor.apply()
     }
 }

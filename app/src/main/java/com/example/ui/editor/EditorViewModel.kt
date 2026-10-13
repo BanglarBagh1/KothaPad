@@ -1,11 +1,15 @@
 package com.example.ui.editor
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.KothaPadApp
+import com.example.data.backup.BackupManager
+import com.example.data.backup.BackupSummary
+import com.example.data.backup.ParsedBackupData
 import com.example.data.model.AudioSourceType
 import com.example.data.model.DictationMode
 import com.example.data.model.DictationState
@@ -1599,6 +1603,108 @@ class EditorViewModel(
             preferencesManager.setNoteMetricsOrder(com.example.ui.notes.NoteMetricsConfig.DEFAULT_ORDER_STRING)
             preferencesManager.setNoteMetricsHiddenItems(emptySet())
             preferencesManager.setTrashAutoEmptyDays(7)
+        }
+    }
+
+    // Backup & Restore Operations
+    fun exportBackup(uri: Uri, onResult: (Result<BackupSummary>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            try {
+                val outputStream = app.contentResolver.openOutputStream(uri)
+                    ?: throw IllegalStateException("Unable to open output destination.")
+                val summary = BackupManager.exportBackup(
+                    context = app,
+                    noteRepository = noteRepository,
+                    stampRepository = stampRepository,
+                    spokenCommandRepository = spokenCommandRepository,
+                    preferencesManager = preferencesManager,
+                    outputStream = outputStream
+                )
+                withContext(Dispatchers.Main) {
+                    onResult(Result.success(summary))
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(Result.failure(e))
+                }
+            }
+        }
+    }
+
+    fun validateBackup(uri: Uri, onResult: (Result<ParsedBackupData>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            try {
+                val inputStream = app.contentResolver.openInputStream(uri)
+                    ?: throw IllegalStateException("Unable to open backup file.")
+                val parsed = inputStream.use {
+                    BackupManager.validateAndParseBackup(it)
+                }
+                withContext(Dispatchers.Main) {
+                    onResult(Result.success(parsed))
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(Result.failure(e))
+                }
+            }
+        }
+    }
+
+    fun restoreBackup(backupData: ParsedBackupData, onResult: (Result<BackupSummary>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val summary = BackupManager.restoreBackup(
+                    noteRepository = noteRepository,
+                    stampRepository = stampRepository,
+                    spokenCommandRepository = spokenCommandRepository,
+                    preferencesManager = preferencesManager,
+                    backupData = backupData
+                )
+                reloadAfterImport()
+                withContext(Dispatchers.Main) {
+                    onResult(Result.success(summary))
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(Result.failure(e))
+                }
+            }
+        }
+    }
+
+    suspend fun reloadAfterImport() {
+        val lastId = preferencesManager.getLastOpenedNoteIdSync()
+        var noteToLoad: Note? = null
+        if (lastId > 0) {
+            val found = noteRepository.getNoteOnce(lastId)
+            if (found != null && !found.isDeleted) {
+                noteToLoad = found
+            }
+        }
+        if (noteToLoad == null) {
+            noteToLoad = noteRepository.getLatestActiveNote() ?: noteRepository.getLatestNote()
+        }
+        withContext(Dispatchers.Main) {
+            if (noteToLoad != null) {
+                loadNote(noteToLoad)
+            } else {
+                createNewNote()
+            }
+        }
+
+        val layoutJson = preferencesManager.keyboardLayoutJson.first()
+        withContext(Dispatchers.Main) {
+            if (!layoutJson.isNullOrBlank()) {
+                try {
+                    _keyboardLayout.value = KeyboardLayouts.deserializeFromJson(layoutJson)
+                } catch (_: Exception) {
+                    _keyboardLayout.value = KeyboardLayouts.getDefault3x10Layout()
+                }
+            } else {
+                _keyboardLayout.value = KeyboardLayouts.getDefault3x10Layout()
+            }
         }
     }
 

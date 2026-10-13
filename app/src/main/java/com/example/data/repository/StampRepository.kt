@@ -16,4 +16,6 @@ class StampRepository(private val stampDao: StampDao) {
     suspend fun updateAll(stamps: List<Stamp>) = stampDao.updateAll(stamps)
 
     suspend fun delete(stamp: Stamp) = stampDao.delete(stamp)
+    suspend fun getAllStampsList(): List<Stamp> = stampDao.getAllStampsList()
+    suspend fun deleteAllStamps(): Int = stampDao.deleteAllStamps()
 }

@@ -44,7 +44,6 @@ fi
 # 4. Confirm root APK output
 if [ -f "app/build/outputs/apk/debug/app-debug.apk" ]; then
     cp -f "app/build/outputs/apk/debug/app-debug.apk" "KothaPad.apk"
-    cp -f "app/build/outputs/apk/debug/app-debug.apk" "app-debug.apk"
     echo "[4/4] Compiled successfully! KothaPad.apk is available in the root folder."
 else
     echo "[4/4] Warning: Output APK not found."

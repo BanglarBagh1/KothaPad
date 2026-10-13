@@ -3,8 +3,12 @@ package com.example.ui.settings
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -33,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Keyboard
@@ -42,7 +47,11 @@ import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import com.example.data.backup.BackupSummary
+import com.example.data.backup.ParsedBackupData
+import com.example.ui.dialogs.FinishSetupDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -271,6 +280,10 @@ fun SettingsScreen(
     onPipelineCommandsChange: (Boolean) -> Unit,
     onShowWordCountChange: (Boolean) -> Unit,
     onOpenNotesManagerSettings: () -> Unit = {},
+    // Backup & Restore Callbacks
+    onExportBackup: (Uri, (Result<BackupSummary>) -> Unit) -> Unit = { _, _ -> },
+    onValidateBackup: (Uri, (Result<ParsedBackupData>) -> Unit) -> Unit = { _, _ -> },
+    onRestoreBackup: (ParsedBackupData, (Result<BackupSummary>) -> Unit) -> Unit = { _, _ -> },
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -282,6 +295,54 @@ fun SettingsScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var importJsonText by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf(false) }
+
+    // Backup & Restore states
+    var isExporting by remember { mutableStateOf(false) }
+    var isValidating by remember { mutableStateOf(false) }
+    var isRestoring by remember { mutableStateOf(false) }
+    var validationError by remember { mutableStateOf<String?>(null) }
+    var pendingRestoreData by remember { mutableStateOf<ParsedBackupData?>(null) }
+    var showFinishSetupDialog by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null) {
+            isExporting = true
+            onExportBackup(uri) { result ->
+                isExporting = false
+                result.onSuccess { summary ->
+                    Toast.makeText(
+                        context,
+                        "Backup exported: ${summary.notesCount} notes, ${summary.templatesCount} templates",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }.onFailure { err ->
+                    Toast.makeText(
+                        context,
+                        "Export failed: ${err.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            isValidating = true
+            onValidateBackup(uri) { result ->
+                isValidating = false
+                result.onSuccess { parsed ->
+                    pendingRestoreData = parsed
+                }.onFailure { err ->
+                    validationError = err.message ?: "Invalid or unsupported backup file"
+                }
+            }
+        }
+    }
 
     // Exactly one section open at a time; starts with ALL collapsed
     var expandedSectionId by remember { mutableStateOf<String?>(null) }
@@ -881,7 +942,45 @@ fun SettingsScreen(
                 )
             ),
 
-            // 5. About Section
+            // Backup & Restore Section
+            SettingHeadlineSection(
+                id = "backup_restore",
+                title = "Backup & Restore",
+                subtitle = "Export or replace all notes, folders, templates & app settings",
+                icon = Icons.Outlined.Backup,
+                items = listOf(
+                    SettingItem.ButtonRow(
+                        id = "export_backup_action",
+                        title = "Export Backup",
+                        subtitle = "Saves all notes, templates, folder tree & settings into a ZIP archive",
+                        buttons = listOf(
+                            SettingButtonOption(
+                                label = "Export Backup",
+                                onClick = {
+                                    val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                                    exportLauncher.launch("KothaPad_backup_$dateStr.zip")
+                                }
+                            )
+                        )
+                    ),
+                    SettingItem.ButtonRow(
+                        id = "import_backup_action",
+                        title = "Import Backup (Replace mode)",
+                        subtitle = "Validates and restores notes, templates & settings from a ZIP backup",
+                        buttons = listOf(
+                            SettingButtonOption(
+                                label = "Import Backup",
+                                isDestructive = true,
+                                onClick = {
+                                    importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                                }
+                            )
+                        )
+                    )
+                )
+            ),
+
+            // About Section
             SettingHeadlineSection(
                 id = "about",
                 title = "About KothaPad",
@@ -1044,6 +1143,147 @@ fun SettingsScreen(
                     Text("Cancel")
                 }
             }
+        )
+    }
+
+    // Backup Confirmation Dialog (Replace All)
+    pendingRestoreData?.let { restoreData ->
+        AlertDialog(
+            onDismissRequest = {
+                if (!isRestoring) pendingRestoreData = null
+            },
+            modifier = Modifier.testTag("confirm_restore_dialog"),
+            title = {
+                Text(
+                    text = "Replace All Data?",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "This will delete all current notes and settings and replace them with the backup. Continue?",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Backup details:\n• Notes: ${restoreData.notes.size}\n• Templates: ${restoreData.stamps.size}\n• Backup Version: v${restoreData.backupVersion}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toRestore = restoreData
+                        pendingRestoreData = null
+                        isRestoring = true
+                        onRestoreBackup(toRestore) { result ->
+                            isRestoring = false
+                            result.onSuccess { summary ->
+                                Toast.makeText(
+                                    context,
+                                    "Backup restored: ${summary.notesCount} notes, ${summary.templatesCount} templates",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                showFinishSetupDialog = true
+                            }.onFailure { err ->
+                                Toast.makeText(
+                                    context,
+                                    err.message ?: "Restoration failed",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("confirm_restore_button")
+                ) {
+                    Text("Replace", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { pendingRestoreData = null },
+                    modifier = Modifier.testTag("cancel_restore_button")
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Validation Error Dialog
+    validationError?.let { errText ->
+        AlertDialog(
+            onDismissRequest = { validationError = null },
+            title = {
+                Text(
+                    text = "Backup Verification Failed",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            },
+            text = {
+                Text(
+                    text = errText,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { validationError = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = SaffronPrimary)
+                ) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    // Progress Indicator Dialog
+    if (isExporting || isValidating || isRestoring) {
+        val progressMessage = when {
+            isExporting -> "Exporting backup to ZIP..."
+            isValidating -> "Verifying backup file..."
+            isRestoring -> "Restoring notes and settings..."
+            else -> "Processing..."
+        }
+        AlertDialog(
+            onDismissRequest = { /* Non-dismissible while active */ },
+            title = {
+                Text(
+                    text = progressMessage,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
+            },
+            text = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = SaffronPrimary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Text(
+                        text = "Please wait, do not close the app...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    // Finish Setup Dialog (Permission & System Setting Checklist)
+    if (showFinishSetupDialog) {
+        FinishSetupDialog(
+            onDismiss = { showFinishSetupDialog = false }
         )
     }
 }

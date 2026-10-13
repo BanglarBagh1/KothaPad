@@ -29,6 +29,12 @@ interface StampDao {
     @Delete
     suspend fun delete(stamp: Stamp)
 
+    @Query("SELECT * FROM stamps ORDER BY isPinned DESC, orderIndex ASC")
+    suspend fun getAllStampsList(): List<Stamp>
+
+    @Query("DELETE FROM stamps")
+    suspend fun deleteAllStamps(): Int
+
     @Query("SELECT COUNT(*) FROM stamps")
     suspend fun getCount(): Int
 }

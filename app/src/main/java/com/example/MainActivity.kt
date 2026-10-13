@@ -293,6 +293,9 @@ class MainActivity : ComponentActivity() {
                                 onToggleNoteMetricVisibility = { viewModel.toggleNoteMetricVisibility(it) },
                                 onResetNoteMetricsOrder = { viewModel.resetNoteMetricsOrder() },
                                 onOpenNotesManagerSettings = { viewModel.openNotesManagerSettings(fromNoteManager = false) },
+                                onExportBackup = { uri, cb -> viewModel.exportBackup(uri, cb) },
+                                onValidateBackup = { uri, cb -> viewModel.validateBackup(uri, cb) },
+                                onRestoreBackup = { backup, cb -> viewModel.restoreBackup(backup, cb) },
                                 onBackClick = { viewModel.navigateTo("EDITOR") }
                             )
                         }

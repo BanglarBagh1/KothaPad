@@ -16,4 +16,6 @@ class SpokenCommandRepository(private val spokenCommandDao: SpokenCommandDao) {
     suspend fun update(command: SpokenCommand) = spokenCommandDao.update(command)
 
     suspend fun delete(command: SpokenCommand) = spokenCommandDao.delete(command)
+    suspend fun getAllCommandsList(): List<SpokenCommand> = spokenCommandDao.getAllCommandsList()
+    suspend fun deleteAllCommands(): Int = spokenCommandDao.deleteAllCommands()
 }
