@@ -1,0 +1,373 @@
+package com.example.data.preferences
+
+import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+private val Context.dataStore by preferencesDataStore(name = "kothapad_settings")
+
+class PreferencesManager(private val context: Context) {
+
+    private val syncPrefs = context.getSharedPreferences("kothapad_sync_prefs", Context.MODE_PRIVATE)
+
+    companion object {
+        val KEY_DICTATION_MODE = stringPreferencesKey("dictation_mode")
+        val KEY_TIMED_MINUTES = intPreferencesKey("timed_minutes")
+        val KEY_PAUSE_TOLERANCE_SECONDS = intPreferencesKey("pause_tolerance_seconds")
+        val KEY_IDLE_AUTO_STOP_MINUTES = intPreferencesKey("idle_auto_stop_minutes")
+        val KEY_MUTE_BEEP_METHOD = stringPreferencesKey("mute_beep_method") // "MEDIA_SYSTEM", "VIBRATE_ONCE", "OFF"
+        val KEY_MUTED_BY_APP = booleanPreferencesKey("muted_by_app")
+        val KEY_MUTED_MUSIC_VOL = intPreferencesKey("muted_music_vol")
+        val KEY_MUTED_SYSTEM_VOL = intPreferencesKey("muted_system_vol")
+        val KEY_SAVED_RINGER_MODE = intPreferencesKey("saved_ringer_mode")
+        val KEY_INSERTION_MODE = stringPreferencesKey("insertion_mode")
+        val KEY_OFFLINE_PREFERRED = booleanPreferencesKey("offline_preferred")
+        val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+
+        val KEY_DEFAULT_LANGUAGE = stringPreferencesKey("default_language")
+        val KEY_FAVORITE_LANGUAGES = stringSetPreferencesKey("favorite_languages")
+
+        val KEY_APP_THEME = stringPreferencesKey("app_theme")
+        val KEY_EDITOR_FONT_SIZE = floatPreferencesKey("editor_font_size")
+        val KEY_EDITOR_LINE_SPACING = floatPreferencesKey("editor_line_spacing")
+        val KEY_EDITOR_FONT_FAMILY = stringPreferencesKey("editor_font_family")
+
+        // Custom Theme Colors (ARGB ints)
+        val KEY_CUSTOM_PRIMARY_COLOR = intPreferencesKey("custom_primary_color")
+        val KEY_CUSTOM_BACKGROUND_COLOR = intPreferencesKey("custom_background_color")
+        val KEY_CUSTOM_SURFACE_COLOR = intPreferencesKey("custom_surface_color")
+        val KEY_CUSTOM_TEXT_COLOR = intPreferencesKey("custom_text_color")
+        val KEY_CUSTOM_SECONDARY_COLOR = intPreferencesKey("custom_secondary_color")
+
+        // Typography Ext
+        val KEY_CUSTOM_FONT_PATH = stringPreferencesKey("custom_font_path")
+        val KEY_CUSTOM_FONT_NAME = stringPreferencesKey("custom_font_name")
+        val KEY_EDITOR_LETTER_SPACING = floatPreferencesKey("editor_letter_spacing")
+        val KEY_EDITOR_PARAGRAPH_SPACING = intPreferencesKey("editor_paragraph_spacing")
+        val KEY_EDITOR_TEXT_ALIGNMENT = stringPreferencesKey("editor_text_alignment")
+        val KEY_EDITOR_MARGIN_DP = intPreferencesKey("editor_margin_dp")
+        val KEY_EDITOR_MAX_WIDTH_DP = intPreferencesKey("editor_max_width_dp")
+
+        // Toolbar Items & Order
+        val KEY_TOOLBAR_ITEM_ORDER = stringPreferencesKey("toolbar_item_order")
+        val KEY_TOOLBAR_HIDDEN_ITEMS = stringSetPreferencesKey("toolbar_hidden_items")
+
+        // Last Opened Note
+        val KEY_LAST_OPENED_NOTE_ID = longPreferencesKey("last_opened_note_id")
+
+        // Mic Button & Floating Cluster
+        val KEY_MIC_BUTTON_SIZE = stringPreferencesKey("mic_button_size")
+        val KEY_MIC_BUTTON_SHAPE = stringPreferencesKey("mic_button_shape")
+        val KEY_MIC_BUTTON_COLOR = stringPreferencesKey("mic_button_color")
+        val KEY_MIC_BUTTON_POSITION = stringPreferencesKey("mic_button_position")
+        val KEY_MIC_BUTTON_OFFSET_Y = intPreferencesKey("mic_button_offset_y")
+
+        // Visual Polish, Animation & Haptics
+        val KEY_STATUS_CHIP_STYLE = stringPreferencesKey("status_chip_style")
+        val KEY_UI_DENSITY = stringPreferencesKey("ui_density")
+        val KEY_CORNER_RADIUS_DP = intPreferencesKey("corner_radius_dp")
+        val KEY_DICTATION_ANIMATION_STYLE = stringPreferencesKey("dictation_animation_style")
+        val KEY_HAPTICS_LEVEL = stringPreferencesKey("haptics_level")
+
+        val KEY_PIPELINE_SPACING = booleanPreferencesKey("pipeline_spacing")
+        val KEY_PIPELINE_AUTOCAP = booleanPreferencesKey("pipeline_autocap")
+        val KEY_PIPELINE_COMMANDS = booleanPreferencesKey("pipeline_commands")
+
+        val KEY_ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
+        val KEY_KEYBOARD_TYPE = stringPreferencesKey("keyboard_type") // "IN_APP" or "SYSTEM"
+        val KEY_SHOW_WORD_COUNT = booleanPreferencesKey("show_word_count")
+        val KEY_KEYBOARD_LAYOUT_JSON = stringPreferencesKey("keyboard_layout_json")
+        val KEY_KEYBOARD_KEY_HEIGHT_DP = intPreferencesKey("keyboard_key_height_dp") // 30-56 dp, default 40
+        val KEY_KEYBOARD_FONT_SIZE_SP = intPreferencesKey("keyboard_font_size_sp") // default 15
+        val KEY_KEYBOARD_HAPTIC = booleanPreferencesKey("keyboard_haptic") // default true
+        val KEY_KEYBOARD_HOLD_BEHAVIOR = stringPreferencesKey("keyboard_hold_behavior") // "CUSTOMIZE" or "REPEAT"
+        val KEY_KEYBOARD_EDIT_MODE = booleanPreferencesKey("keyboard_edit_mode") // default false
+        val KEY_TRASH_AUTO_EMPTY_DAYS = intPreferencesKey("trash_auto_empty_days") // default 7
+        val KEY_DEFAULT_NEW_NOTE_FOLDER = stringPreferencesKey("default_new_note_folder") // default "General"
+
+        // Tree Explorer & Note Metrics
+        val KEY_SHOW_NOTE_METRICS_IN_LIST = booleanPreferencesKey("show_note_metrics_in_list") // default true
+        val KEY_NOTE_METRICS_STYLE = stringPreferencesKey("note_metrics_style") // "COMPACT" or "DETAILED"
+        val KEY_NOTE_METRICS_ORDER = stringPreferencesKey("note_metrics_order")
+        val KEY_NOTE_METRICS_HIDDEN_ITEMS = stringSetPreferencesKey("note_metrics_hidden_items")
+        val KEY_KEYBOARD_LAYOUT_VERSION = intPreferencesKey("keyboard_layout_version_v2")
+        val KEY_EXPANDED_FOLDERS = stringSetPreferencesKey("expanded_tree_folders")
+        val KEY_CUSTOM_FOLDERS = stringSetPreferencesKey("custom_folders_set")
+
+        // Notes Manager Settings Keys
+        val KEY_NEW_NOTE_LOCATION_MODE = stringPreferencesKey("new_note_location_mode")
+        val KEY_FIXED_NEW_NOTE_FOLDER = stringPreferencesKey("fixed_new_note_folder")
+        val KEY_ASK_BEFORE_CREATING = booleanPreferencesKey("ask_before_creating")
+        val KEY_ASK_CHOOSE_TEMPLATE_TOGGLE = booleanPreferencesKey("ask_choose_template_toggle")
+        val KEY_ASK_START_RECORDING_TOGGLE = booleanPreferencesKey("ask_start_recording_toggle")
+        val KEY_NEW_NOTE_NAMING_RULE = stringPreferencesKey("new_note_naming_rule")
+        val KEY_AFTER_CREATING_NOTE = stringPreferencesKey("after_creating_note")
+        val KEY_LAST_ACTIVE_FOLDER = stringPreferencesKey("last_active_folder")
+    }
+
+    // Dictation Flow
+    val dictationMode: Flow<String> = context.dataStore.data.map { it[KEY_DICTATION_MODE] ?: "CONTINUOUS" }
+    val timedMinutes: Flow<Int> = context.dataStore.data.map { it[KEY_TIMED_MINUTES] ?: 3 }
+    val pauseToleranceSeconds: Flow<Int> = context.dataStore.data.map { it[KEY_PAUSE_TOLERANCE_SECONDS] ?: 30 }
+    val idleAutoStopMinutes: Flow<Int> = context.dataStore.data.map { it[KEY_IDLE_AUTO_STOP_MINUTES] ?: 0 }
+    val muteBeepMethod: Flow<String> = context.dataStore.data.map { it[KEY_MUTE_BEEP_METHOD] ?: "MEDIA_SYSTEM" }
+    val mutedByApp: Flow<Boolean> = context.dataStore.data.map { it[KEY_MUTED_BY_APP] ?: false }
+    val mutedMusicVol: Flow<Int> = context.dataStore.data.map { it[KEY_MUTED_MUSIC_VOL] ?: -1 }
+    val mutedSystemVol: Flow<Int> = context.dataStore.data.map { it[KEY_MUTED_SYSTEM_VOL] ?: -1 }
+    val savedRingerMode: Flow<Int> = context.dataStore.data.map { it[KEY_SAVED_RINGER_MODE] ?: -1 }
+    val insertionMode: Flow<String> = context.dataStore.data.map { it[KEY_INSERTION_MODE] ?: "AT_CURSOR" }
+    val offlinePreferred: Flow<Boolean> = context.dataStore.data.map { it[KEY_OFFLINE_PREFERRED] ?: false }
+    val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { it[KEY_KEEP_SCREEN_ON] ?: true }
+
+    // Language Flow
+    val defaultLanguage: Flow<String> = context.dataStore.data.map { it[KEY_DEFAULT_LANGUAGE] ?: "bn-BD" }
+    val favoriteLanguages: Flow<Set<String>> = context.dataStore.data.map {
+        it[KEY_FAVORITE_LANGUAGES] ?: setOf("bn-BD", "bn-IN", "en-US")
+    }
+
+    // Appearance Flow
+    val appTheme: Flow<String> = context.dataStore.data.map { it[KEY_APP_THEME] ?: "AMOLED" }
+    val editorFontSize: Flow<Float> = context.dataStore.data.map { it[KEY_EDITOR_FONT_SIZE] ?: 18f }
+    val editorLineSpacing: Flow<Float> = context.dataStore.data.map { it[KEY_EDITOR_LINE_SPACING] ?: 1.5f }
+    val editorFontFamily: Flow<String> = context.dataStore.data.map { it[KEY_EDITOR_FONT_FAMILY] ?: "BENGALI" }
+
+    // Custom Theme Colors Flow
+    val customPrimaryColor: Flow<Int> = context.dataStore.data.map { it[KEY_CUSTOM_PRIMARY_COLOR] ?: 0xFFFF7043.toInt() }
+    val customBackgroundColor: Flow<Int> = context.dataStore.data.map { it[KEY_CUSTOM_BACKGROUND_COLOR] ?: 0xFF000000.toInt() }
+    val customSurfaceColor: Flow<Int> = context.dataStore.data.map { it[KEY_CUSTOM_SURFACE_COLOR] ?: 0xFF121212.toInt() }
+    val customTextColor: Flow<Int> = context.dataStore.data.map { it[KEY_CUSTOM_TEXT_COLOR] ?: 0xFFFFFFFF.toInt() }
+    val customSecondaryColor: Flow<Int> = context.dataStore.data.map { it[KEY_CUSTOM_SECONDARY_COLOR] ?: 0xFFFF8A65.toInt() }
+
+    // Typography Ext Flow
+    val customFontPath: Flow<String?> = context.dataStore.data.map { it[KEY_CUSTOM_FONT_PATH] }
+    val customFontName: Flow<String> = context.dataStore.data.map { it[KEY_CUSTOM_FONT_NAME] ?: "" }
+    val editorLetterSpacing: Flow<Float> = context.dataStore.data.map { it[KEY_EDITOR_LETTER_SPACING] ?: 0f }
+    val editorParagraphSpacing: Flow<Int> = context.dataStore.data.map { it[KEY_EDITOR_PARAGRAPH_SPACING] ?: 8 }
+    val editorTextAlignment: Flow<String> = context.dataStore.data.map { it[KEY_EDITOR_TEXT_ALIGNMENT] ?: "LEFT" }
+    val editorMarginDp: Flow<Int> = context.dataStore.data.map { it[KEY_EDITOR_MARGIN_DP] ?: 16 }
+    val editorMaxWidthDp: Flow<Int> = context.dataStore.data.map { it[KEY_EDITOR_MAX_WIDTH_DP] ?: 0 }
+
+    // Toolbar Flow
+    val toolbarItemOrder: Flow<String> = context.dataStore.data.map {
+        it[KEY_TOOLBAR_ITEM_ORDER] ?: "DICTATION_STATUS,METRICS,NOTE_TIMER,KEYBOARD_MODE,TEXT_SIZE,TEXT_STYLE,AUDIO_SOURCE"
+    }
+    val toolbarHiddenItems: Flow<Set<String>> = context.dataStore.data.map { it[KEY_TOOLBAR_HIDDEN_ITEMS] ?: emptySet() }
+
+    // Mic Button Flow
+    val micButtonSize: Flow<String> = context.dataStore.data.map { it[KEY_MIC_BUTTON_SIZE] ?: "MEDIUM" }
+    val micButtonShape: Flow<String> = context.dataStore.data.map { it[KEY_MIC_BUTTON_SHAPE] ?: "CIRCLE" }
+    val micButtonColor: Flow<String> = context.dataStore.data.map { it[KEY_MIC_BUTTON_COLOR] ?: "DEFAULT" }
+    val micButtonPosition: Flow<String> = context.dataStore.data.map { it[KEY_MIC_BUTTON_POSITION] ?: "RIGHT" }
+    val micButtonOffsetY: Flow<Int> = context.dataStore.data.map { it[KEY_MIC_BUTTON_OFFSET_Y] ?: 8 }
+
+    // Visual Polish, Animation & Haptics Flow
+    val statusChipStyle: Flow<String> = context.dataStore.data.map { it[KEY_STATUS_CHIP_STYLE] ?: "PILL" }
+    val uiDensity: Flow<String> = context.dataStore.data.map { it[KEY_UI_DENSITY] ?: "NORMAL" }
+    val cornerRadiusDp: Flow<Int> = context.dataStore.data.map { it[KEY_CORNER_RADIUS_DP] ?: 12 }
+    val dictationAnimationStyle: Flow<String> = context.dataStore.data.map { it[KEY_DICTATION_ANIMATION_STYLE] ?: "PULSE_RING" }
+    val hapticsLevel: Flow<String> = context.dataStore.data.map { it[KEY_HAPTICS_LEVEL] ?: "MEDIUM" }
+
+    // Text Pipeline Flow
+    val pipelineSpacing: Flow<Boolean> = context.dataStore.data.map { it[KEY_PIPELINE_SPACING] ?: true }
+    val pipelineAutoCap: Flow<Boolean> = context.dataStore.data.map { it[KEY_PIPELINE_AUTOCAP] ?: true }
+    val pipelineCommands: Flow<Boolean> = context.dataStore.data.map { it[KEY_PIPELINE_COMMANDS] ?: true }
+
+    // General Flow
+    val onboardingCompleted: Flow<Boolean> = context.dataStore.data.map {
+        it[KEY_ONBOARDING_COMPLETED] ?: isOnboardingCompletedSync()
+    }
+    val keyboardType: Flow<String> = context.dataStore.data.map { it[KEY_KEYBOARD_TYPE] ?: "IN_APP" }
+    val showWordCount: Flow<Boolean> = context.dataStore.data.map { it[KEY_SHOW_WORD_COUNT] ?: true }
+
+    // Keyboard Flows
+    val keyboardLayoutJson: Flow<String?> = context.dataStore.data.map { it[KEY_KEYBOARD_LAYOUT_JSON] }
+    val keyboardKeyHeightDp: Flow<Int> = context.dataStore.data.map { it[KEY_KEYBOARD_KEY_HEIGHT_DP] ?: 40 }
+    val keyboardFontSizeSp: Flow<Int> = context.dataStore.data.map { it[KEY_KEYBOARD_FONT_SIZE_SP] ?: 15 }
+    val keyboardHaptic: Flow<Boolean> = context.dataStore.data.map { it[KEY_KEYBOARD_HAPTIC] ?: true }
+    val keyboardHoldBehavior: Flow<String> = context.dataStore.data.map { it[KEY_KEYBOARD_HOLD_BEHAVIOR] ?: "CUSTOMIZE" }
+    val keyboardEditMode: Flow<Boolean> = context.dataStore.data.map { it[KEY_KEYBOARD_EDIT_MODE] ?: false }
+    val trashAutoEmptyDays: Flow<Int> = context.dataStore.data.map { it[KEY_TRASH_AUTO_EMPTY_DAYS] ?: 7 }
+    val defaultNewNoteFolder: Flow<String> = context.dataStore.data.map { it[KEY_DEFAULT_NEW_NOTE_FOLDER] ?: "General" }
+    val showNoteMetricsInList: Flow<Boolean> = context.dataStore.data.map { it[KEY_SHOW_NOTE_METRICS_IN_LIST] ?: true }
+    val noteMetricsStyle: Flow<String> = context.dataStore.data.map { it[KEY_NOTE_METRICS_STYLE] ?: "COMPACT" }
+    val noteMetricsOrder: Flow<String> = context.dataStore.data.map { it[KEY_NOTE_METRICS_ORDER] ?: com.example.ui.notes.NoteMetricsConfig.DEFAULT_ORDER_STRING }
+    val noteMetricsHiddenItems: Flow<Set<String>> = context.dataStore.data.map { it[KEY_NOTE_METRICS_HIDDEN_ITEMS] ?: emptySet() }
+    val keyboardLayoutVersion: Flow<Int> = context.dataStore.data.map { it[KEY_KEYBOARD_LAYOUT_VERSION] ?: 1 }
+    val expandedFolders: Flow<Set<String>> = context.dataStore.data.map { it[KEY_EXPANDED_FOLDERS] ?: setOf("General", "Templates") }
+    val customFolders: Flow<Set<String>> = context.dataStore.data.map { it[KEY_CUSTOM_FOLDERS] ?: emptySet() }
+
+    // Update helpers
+    suspend fun setDictationMode(mode: String) = context.dataStore.edit { it[KEY_DICTATION_MODE] = mode }
+    suspend fun setTimedMinutes(minutes: Int) = context.dataStore.edit { it[KEY_TIMED_MINUTES] = minutes }
+    suspend fun setPauseToleranceSeconds(seconds: Int) = context.dataStore.edit { it[KEY_PAUSE_TOLERANCE_SECONDS] = seconds }
+    suspend fun setIdleAutoStopMinutes(minutes: Int) = context.dataStore.edit { it[KEY_IDLE_AUTO_STOP_MINUTES] = minutes }
+    suspend fun setMuteBeepMethod(method: String) = context.dataStore.edit { it[KEY_MUTE_BEEP_METHOD] = method }
+
+    suspend fun saveMutedRecord(musicVol: Int, systemVol: Int, ringerMode: Int) = context.dataStore.edit {
+        it[KEY_MUTED_BY_APP] = true
+        it[KEY_MUTED_MUSIC_VOL] = musicVol
+        it[KEY_MUTED_SYSTEM_VOL] = systemVol
+        it[KEY_SAVED_RINGER_MODE] = ringerMode
+    }
+
+    suspend fun clearMutedRecord() = context.dataStore.edit {
+        it[KEY_MUTED_BY_APP] = false
+        it.remove(KEY_MUTED_MUSIC_VOL)
+        it.remove(KEY_MUTED_SYSTEM_VOL)
+        it.remove(KEY_SAVED_RINGER_MODE)
+    }
+
+    suspend fun setInsertionMode(mode: String) = context.dataStore.edit { it[KEY_INSERTION_MODE] = mode }
+    suspend fun setOfflinePreferred(offline: Boolean) = context.dataStore.edit { it[KEY_OFFLINE_PREFERRED] = offline }
+    suspend fun setKeepScreenOn(keep: Boolean) = context.dataStore.edit { it[KEY_KEEP_SCREEN_ON] = keep }
+
+    suspend fun setDefaultLanguage(lang: String) = context.dataStore.edit { it[KEY_DEFAULT_LANGUAGE] = lang }
+    suspend fun setFavoriteLanguages(langs: Set<String>) = context.dataStore.edit { it[KEY_FAVORITE_LANGUAGES] = langs }
+
+    suspend fun setAppTheme(theme: String) = context.dataStore.edit { it[KEY_APP_THEME] = theme }
+    suspend fun setEditorFontSize(size: Float) = context.dataStore.edit { it[KEY_EDITOR_FONT_SIZE] = size }
+    suspend fun setEditorLineSpacing(spacing: Float) = context.dataStore.edit { it[KEY_EDITOR_LINE_SPACING] = spacing }
+    suspend fun setEditorFontFamily(family: String) = context.dataStore.edit { it[KEY_EDITOR_FONT_FAMILY] = family }
+
+    suspend fun setPipelineSpacing(enabled: Boolean) = context.dataStore.edit { it[KEY_PIPELINE_SPACING] = enabled }
+    suspend fun setPipelineAutoCap(enabled: Boolean) = context.dataStore.edit { it[KEY_PIPELINE_AUTOCAP] = enabled }
+    suspend fun setPipelineCommands(enabled: Boolean) = context.dataStore.edit { it[KEY_PIPELINE_COMMANDS] = enabled }
+
+    fun isOnboardingCompletedSync(): Boolean {
+        if (syncPrefs.contains("onboarding_completed")) {
+            return syncPrefs.getBoolean("onboarding_completed", false)
+        }
+        val dbFile1 = context.getDatabasePath("kothapad.db")
+        val dbFile2 = context.getDatabasePath("kothapad_database")
+        if ((dbFile1.exists() && dbFile1.length() > 0) || (dbFile2.exists() && dbFile2.length() > 0)) {
+            syncPrefs.edit().putBoolean("onboarding_completed", true).commit()
+            return true
+        }
+        return false
+    }
+
+    suspend fun setOnboardingCompleted(completed: Boolean) {
+        syncPrefs.edit().putBoolean("onboarding_completed", completed).commit()
+        context.dataStore.edit { it[KEY_ONBOARDING_COMPLETED] = completed }
+    }
+
+    fun getLastOpenedNoteIdSync(): Long {
+        return syncPrefs.getLong("last_opened_note_id", -1L)
+    }
+
+    fun setLastOpenedNoteIdSync(noteId: Long) {
+        syncPrefs.edit().putLong("last_opened_note_id", noteId).apply()
+    }
+
+    suspend fun setLastOpenedNoteId(noteId: Long) {
+        setLastOpenedNoteIdSync(noteId)
+        context.dataStore.edit { it[KEY_LAST_OPENED_NOTE_ID] = noteId }
+    }
+    suspend fun setKeyboardType(type: String) = context.dataStore.edit { it[KEY_KEYBOARD_TYPE] = type }
+    suspend fun setShowWordCount(show: Boolean) = context.dataStore.edit { it[KEY_SHOW_WORD_COUNT] = show }
+
+    suspend fun setKeyboardLayoutJson(json: String?) = context.dataStore.edit {
+        if (json != null) it[KEY_KEYBOARD_LAYOUT_JSON] = json else it.remove(KEY_KEYBOARD_LAYOUT_JSON)
+    }
+    suspend fun setKeyboardKeyHeightDp(dp: Int) = context.dataStore.edit { it[KEY_KEYBOARD_KEY_HEIGHT_DP] = dp }
+    suspend fun setKeyboardFontSizeSp(sp: Int) = context.dataStore.edit { it[KEY_KEYBOARD_FONT_SIZE_SP] = sp }
+    suspend fun setKeyboardHaptic(enabled: Boolean) = context.dataStore.edit { it[KEY_KEYBOARD_HAPTIC] = enabled }
+    suspend fun setKeyboardHoldBehavior(behavior: String) = context.dataStore.edit { it[KEY_KEYBOARD_HOLD_BEHAVIOR] = behavior }
+    suspend fun setKeyboardEditMode(editMode: Boolean) = context.dataStore.edit { it[KEY_KEYBOARD_EDIT_MODE] = editMode }
+    suspend fun setTrashAutoEmptyDays(days: Int) = context.dataStore.edit { it[KEY_TRASH_AUTO_EMPTY_DAYS] = days }
+    suspend fun setDefaultNewNoteFolder(folder: String) = context.dataStore.edit { it[KEY_DEFAULT_NEW_NOTE_FOLDER] = folder }
+
+    suspend fun setCustomThemeColors(primary: Int, bg: Int, surface: Int, text: Int, secondary: Int) = context.dataStore.edit {
+        it[KEY_CUSTOM_PRIMARY_COLOR] = primary
+        it[KEY_CUSTOM_BACKGROUND_COLOR] = bg
+        it[KEY_CUSTOM_SURFACE_COLOR] = surface
+        it[KEY_CUSTOM_TEXT_COLOR] = text
+        it[KEY_CUSTOM_SECONDARY_COLOR] = secondary
+    }
+
+    suspend fun setCustomFont(name: String, path: String?) = context.dataStore.edit {
+        it[KEY_CUSTOM_FONT_NAME] = name
+        if (path != null) it[KEY_CUSTOM_FONT_PATH] = path else it.remove(KEY_CUSTOM_FONT_PATH)
+    }
+
+    suspend fun setEditorLetterSpacing(spacing: Float) = context.dataStore.edit { it[KEY_EDITOR_LETTER_SPACING] = spacing }
+    suspend fun setEditorParagraphSpacing(spacing: Int) = context.dataStore.edit { it[KEY_EDITOR_PARAGRAPH_SPACING] = spacing }
+    suspend fun setEditorTextAlignment(align: String) = context.dataStore.edit { it[KEY_EDITOR_TEXT_ALIGNMENT] = align }
+    suspend fun setEditorMarginDp(margin: Int) = context.dataStore.edit { it[KEY_EDITOR_MARGIN_DP] = margin }
+    suspend fun setEditorMaxWidthDp(width: Int) = context.dataStore.edit { it[KEY_EDITOR_MAX_WIDTH_DP] = width }
+
+    suspend fun setToolbarItemOrder(order: String) = context.dataStore.edit { it[KEY_TOOLBAR_ITEM_ORDER] = order }
+    suspend fun setToolbarHiddenItems(hidden: Set<String>) = context.dataStore.edit { it[KEY_TOOLBAR_HIDDEN_ITEMS] = hidden }
+
+    suspend fun setMicButtonSize(size: String) = context.dataStore.edit { it[KEY_MIC_BUTTON_SIZE] = size }
+    suspend fun setMicButtonShape(shape: String) = context.dataStore.edit { it[KEY_MIC_BUTTON_SHAPE] = shape }
+    suspend fun setMicButtonColor(color: String) = context.dataStore.edit { it[KEY_MIC_BUTTON_COLOR] = color }
+    suspend fun setMicButtonPosition(pos: String) = context.dataStore.edit { it[KEY_MIC_BUTTON_POSITION] = pos }
+    suspend fun setMicButtonOffsetY(offset: Int) = context.dataStore.edit { it[KEY_MIC_BUTTON_OFFSET_Y] = offset }
+
+    suspend fun setStatusChipStyle(style: String) = context.dataStore.edit { it[KEY_STATUS_CHIP_STYLE] = style }
+    suspend fun setUiDensity(density: String) = context.dataStore.edit { it[KEY_UI_DENSITY] = density }
+    suspend fun setCornerRadiusDp(radius: Int) = context.dataStore.edit { it[KEY_CORNER_RADIUS_DP] = radius }
+    suspend fun setDictationAnimationStyle(style: String) = context.dataStore.edit { it[KEY_DICTATION_ANIMATION_STYLE] = style }
+    suspend fun setHapticsLevel(level: String) = context.dataStore.edit { it[KEY_HAPTICS_LEVEL] = level }
+
+    fun getExpandedFoldersSync(): Set<String> {
+        return syncPrefs.getStringSet("expanded_folders", null) ?: setOf("General", "Templates")
+    }
+
+    fun setExpandedFoldersSync(folders: Set<String>) {
+        syncPrefs.edit().putStringSet("expanded_folders", folders).apply()
+    }
+
+    suspend fun setShowNoteMetricsInList(show: Boolean) = context.dataStore.edit { it[KEY_SHOW_NOTE_METRICS_IN_LIST] = show }
+    suspend fun setNoteMetricsStyle(style: String) = context.dataStore.edit { it[KEY_NOTE_METRICS_STYLE] = style }
+    suspend fun setNoteMetricsOrder(order: String) = context.dataStore.edit { it[KEY_NOTE_METRICS_ORDER] = order }
+    suspend fun setNoteMetricsHiddenItems(hidden: Set<String>) = context.dataStore.edit { it[KEY_NOTE_METRICS_HIDDEN_ITEMS] = hidden }
+    suspend fun setKeyboardLayoutVersion(version: Int) = context.dataStore.edit { it[KEY_KEYBOARD_LAYOUT_VERSION] = version }
+    suspend fun setExpandedFolders(folders: Set<String>) {
+        setExpandedFoldersSync(folders)
+        context.dataStore.edit { it[KEY_EXPANDED_FOLDERS] = folders }
+    }
+    suspend fun setCustomFolders(folders: Set<String>) = context.dataStore.edit { it[KEY_CUSTOM_FOLDERS] = folders }
+
+    // Notes Manager Settings Flows
+    val newNoteLocationMode: Flow<String> = context.dataStore.data.map { it[KEY_NEW_NOTE_LOCATION_MODE] ?: "LAST_WORKED_ON" }
+    val fixedNewNoteFolder: Flow<String> = context.dataStore.data.map { it[KEY_FIXED_NEW_NOTE_FOLDER] ?: "General" }
+    val askBeforeCreating: Flow<Boolean> = context.dataStore.data.map { it[KEY_ASK_BEFORE_CREATING] ?: false }
+    val askChooseTemplateToggle: Flow<Boolean> = context.dataStore.data.map { it[KEY_ASK_CHOOSE_TEMPLATE_TOGGLE] ?: true }
+    val askStartRecordingToggle: Flow<Boolean> = context.dataStore.data.map { it[KEY_ASK_START_RECORDING_TOGGLE] ?: false }
+    val newNoteNamingRule: Flow<String> = context.dataStore.data.map { it[KEY_NEW_NOTE_NAMING_RULE] ?: "UNTITLED" }
+    val afterCreatingNote: Flow<String> = context.dataStore.data.map { it[KEY_AFTER_CREATING_NOTE] ?: "OPEN_EDITOR" }
+    val lastActiveFolder: Flow<String> = context.dataStore.data.map { it[KEY_LAST_ACTIVE_FOLDER] ?: "General" }
+
+    suspend fun setNewNoteLocationMode(mode: String) = context.dataStore.edit { it[KEY_NEW_NOTE_LOCATION_MODE] = mode }
+    suspend fun setFixedNewNoteFolder(folder: String) = context.dataStore.edit { it[KEY_FIXED_NEW_NOTE_FOLDER] = folder }
+    suspend fun setAskBeforeCreating(ask: Boolean) = context.dataStore.edit { it[KEY_ASK_BEFORE_CREATING] = ask }
+    suspend fun setAskChooseTemplateToggle(toggle: Boolean) = context.dataStore.edit { it[KEY_ASK_CHOOSE_TEMPLATE_TOGGLE] = toggle }
+    suspend fun setAskStartRecordingToggle(toggle: Boolean) = context.dataStore.edit { it[KEY_ASK_START_RECORDING_TOGGLE] = toggle }
+    suspend fun setNewNoteNamingRule(rule: String) = context.dataStore.edit { it[KEY_NEW_NOTE_NAMING_RULE] = rule }
+    suspend fun setAfterCreatingNote(action: String) = context.dataStore.edit { it[KEY_AFTER_CREATING_NOTE] = action }
+
+    fun getLastActiveFolderSync(): String {
+        return syncPrefs.getString("last_active_folder", "General") ?: "General"
+    }
+    fun setLastActiveFolderSync(folder: String) {
+        if (folder.isNotBlank()) {
+            syncPrefs.edit().putString("last_active_folder", folder).apply()
+        }
+    }
+    suspend fun setLastActiveFolder(folder: String) {
+        if (folder.isNotBlank()) {
+            setLastActiveFolderSync(folder)
+            context.dataStore.edit { it[KEY_LAST_ACTIVE_FOLDER] = folder }
+        }
+    }
+}

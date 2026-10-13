@@ -1,0 +1,8 @@
+{
+  "name": "KothaPad (km10)",
+  "description": "Speech-enabled notepad for power users with continuous dictation, in-app keyboard, one-tap text stamps, and local-first notes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
