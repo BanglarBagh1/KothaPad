@@ -220,24 +220,34 @@ fun EditorScreen(
 
     val builtInKeyboardVisible = userWantsBuiltIn
 
-    val defaultKeyboardController = LocalSoftwareKeyboardController.current
-    val controlledKeyboardController = remember(userWantsBuiltIn, defaultKeyboardController) {
-        object : SoftwareKeyboardController {
-            override fun show() {
-                if (!userWantsBuiltIn) {
-                    defaultKeyboardController?.show()
-                }
+    // Handle switching between In-App Custom Keyboard and System Keyboard
+    LaunchedEffect(userWantsBuiltIn) {
+        if (!userWantsBuiltIn) {
+            // Switching to System Keyboard: request focus and show soft input
+            focusRequester.requestFocus()
+            keyboardController?.show()
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            val activity = context as? Activity
+            val view = activity?.currentFocus ?: activity?.window?.decorView
+            if (view != null) {
+                imm?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
             }
-            override fun hide() {
-                defaultKeyboardController?.hide()
+        } else {
+            // Switching to Custom In-App Keyboard: hide system keyboard and retain editor focus
+            keyboardController?.hide()
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            val windowToken = (context as? Activity)?.window?.decorView?.windowToken
+            if (windowToken != null) {
+                imm?.hideSoftInputFromWindow(windowToken, 0)
             }
+            focusRequester.requestFocus()
         }
     }
 
-    // Hide system keyboard and clear window input when user wants built-in keyboard and IME somehow becomes visible
+    // Hide system keyboard if it somehow becomes visible while user is in custom keyboard mode
     LaunchedEffect(userWantsBuiltIn, isImeVisible) {
         if (userWantsBuiltIn && isImeVisible) {
-            defaultKeyboardController?.hide()
+            keyboardController?.hide()
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
             val windowToken = (context as? Activity)?.window?.decorView?.windowToken
             if (windowToken != null) {
@@ -402,23 +412,7 @@ fun EditorScreen(
                         onStyleSheetClick = { viewModel.showStyleSheet.value = true },
                         onHighlightClick = { viewModel.showStyleSheet.value = true },
                         onKeyboardToggleClick = {
-                            val activity = context as? Activity
-                            if (builtInKeyboardVisible) {
-                                activity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED)
-                                viewModel.setUserWantsBuiltInKeyboard(false)
-                                focusRequester.requestFocus()
-                                defaultKeyboardController?.show()
-                            } else {
-                                defaultKeyboardController?.hide()
-                                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                                val windowToken = activity?.window?.decorView?.windowToken
-                                if (windowToken != null) {
-                                    imm?.hideSoftInputFromWindow(windowToken, 0)
-                                }
-                                activity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
-                                viewModel.setUserWantsBuiltInKeyboard(true)
-                                focusRequester.requestFocus()
-                            }
+                            viewModel.setUserWantsBuiltInKeyboard(!builtInKeyboardVisible)
                         },
                         toolbarItemOrder = toolbarItemOrder,
                         hiddenItems = toolbarHiddenItems,
@@ -463,8 +457,16 @@ fun EditorScreen(
                         indication = null
                     ) {
                         focusRequester.requestFocus()
-                        if (userWantsBuiltIn) {
-                            defaultKeyboardController?.hide()
+                        if (!userWantsBuiltIn) {
+                            keyboardController?.show()
+                            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                            val activity = context as? Activity
+                            val view = activity?.currentFocus ?: activity?.window?.decorView
+                            if (view != null) {
+                                imm?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+                            }
+                        } else {
+                            keyboardController?.hide()
                         }
                     }
             ) {
@@ -550,63 +552,82 @@ fun EditorScreen(
                 ) {
 
 
-                    // Main Editable Text Field
-                    CompositionLocalProvider(
-                        LocalSoftwareKeyboardController provides controlledKeyboardController
-                    ) {
-                        InterceptPlatformTextInput(
-                            interceptor = { request, nextHandler ->
-                                if (userWantsBuiltIn) {
-                                    awaitCancellation()
-                                } else {
-                                    nextHandler.startInputMethod(request)
+                    val defaultKeyboardController = LocalSoftwareKeyboardController.current
+                    val customKeyboardController = remember(userWantsBuiltIn, defaultKeyboardController) {
+                        object : SoftwareKeyboardController {
+                            override fun show() {
+                                if (!userWantsBuiltIn) {
+                                    defaultKeyboardController?.show()
                                 }
                             }
+                            override fun hide() {
+                                defaultKeyboardController?.hide()
+                            }
+                        }
+                    }
+
+                    // Main Editable Text Field
+                    key(userWantsBuiltIn) {
+                        CompositionLocalProvider(
+                            LocalSoftwareKeyboardController provides customKeyboardController
                         ) {
-                            BasicTextField(
-                                value = textFieldValue,
-                                onValueChange = { newValue ->
-                                    viewModel.updateTextFieldValue(newValue)
-                                },
-                                onTextLayout = { result ->
-                                    textLayoutResult = result
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .defaultMinSize(minHeight = 240.dp)
-                                    .onGloballyPositioned { coords ->
-                                        textFieldCoordinates = coords
-                                    }
-                                    .focusRequester(focusRequester)
-                                    .testTag("editor_text_input"),
-                                textStyle = TextStyle(
-                                    fontFamily = fontFam,
-                                    fontSize = fontSize.sp,
-                                    lineHeight = (fontSize * lineSpacing).sp,
-                                    letterSpacing = letterSpacing.sp,
-                                    textAlign = textAlignValue,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                ),
-                                cursorBrush = SolidColor(SaffronPrimary),
-                                decorationBox = { innerTextField ->
-                                    Box(modifier = Modifier.fillMaxWidth()) {
-                                        if (textFieldValue.text.isEmpty() && partialText.isEmpty()) {
-                                            Text(
-                                                text = "Start typing or tap the mic to speak...",
-                                                style = TextStyle(
-                                                    fontFamily = fontFam,
-                                                    fontSize = fontSize.sp,
-                                                    lineHeight = (fontSize * lineSpacing).sp,
-                                                    letterSpacing = letterSpacing.sp,
-                                                    textAlign = textAlignValue,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                                )
-                                            )
-                                        }
-                                        innerTextField()
+                            InterceptPlatformTextInput(
+                                interceptor = { request, nextHandler ->
+                                    if (userWantsBuiltIn) {
+                                        // Custom keyboard mode: prevent system IME from opening while keeping
+                                        // text field editable with a visible, blinking cursor and no popup flickering
+                                        awaitCancellation()
+                                    } else {
+                                        // System keyboard mode: pass through directly to Android platform IME
+                                        nextHandler.startInputMethod(request)
                                     }
                                 }
-                            )
+                            ) {
+                                BasicTextField(
+                                    value = textFieldValue,
+                                    onValueChange = { newValue ->
+                                        viewModel.updateTextFieldValue(newValue)
+                                    },
+                                    onTextLayout = { result ->
+                                        textLayoutResult = result
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .defaultMinSize(minHeight = 240.dp)
+                                        .onGloballyPositioned { coords ->
+                                            textFieldCoordinates = coords
+                                        }
+                                        .focusRequester(focusRequester)
+                                        .testTag("editor_text_input"),
+                                    textStyle = TextStyle(
+                                        fontFamily = fontFam,
+                                        fontSize = fontSize.sp,
+                                        lineHeight = (fontSize * lineSpacing).sp,
+                                        letterSpacing = letterSpacing.sp,
+                                        textAlign = textAlignValue,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    ),
+                                    cursorBrush = SolidColor(SaffronPrimary),
+                                    decorationBox = { innerTextField ->
+                                        Box(modifier = Modifier.fillMaxWidth()) {
+                                            if (textFieldValue.text.isEmpty() && partialText.isEmpty()) {
+                                                Text(
+                                                    text = "Start typing or tap the mic to speak...",
+                                                    style = TextStyle(
+                                                        fontFamily = fontFam,
+                                                        fontSize = fontSize.sp,
+                                                        lineHeight = (fontSize * lineSpacing).sp,
+                                                        letterSpacing = letterSpacing.sp,
+                                                        textAlign = textAlignValue,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                    )
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
 
