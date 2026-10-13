@@ -45,9 +45,29 @@
 ## 🛠️ Build & Run Instructions
 
 ```bash
-# Build debug APK
+# Build debug APK (automatically places KothaPad.apk in root directory)
 gradle assembleDebug
 
 # Run unit and Robolectric tests
 gradle :app:testDebugUnitTest
 ```
+
+---
+
+## 🔄 GitHub Sync & Cross-Account Importing
+
+When you push this repository to GitHub and re-import it into another Google AI Studio account or machine:
+
+### Why Certain Files Are Excluded in Git
+- **Compiled APKs & `build/` folder**: Git ignores build output directories (`app/build/`) to keep commit history fast and clean.
+- **Environment Secrets (`.env`)**: Git ignores `.env` to prevent private credentials from leaking.
+- **Signing Keystores (`debug.keystore`)**: Binary keystores are gitignored; instead, `debug.keystore.base64` is tracked in Git.
+
+### Automated Self-Healing
+The workspace is configured to self-heal on import:
+1. **Gradle Pre-flight Auto-Restore**: When Gradle runs any build task, `app/build.gradle.kts` automatically checks for `debug.keystore` and `.env`. If missing, it automatically decodes `debug.keystore.base64` and generates `.env` from `.env.example`.
+2. **Auto-Copy APK**: Every `./gradlew assembleDebug` run automatically copies the output APK to `KothaPad.apk` in the root workspace folder for easy download.
+3. **One-Command Setup**: You can also run the bundled setup script:
+   ```bash
+   ./setup_workspace.sh
+   ```

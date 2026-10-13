@@ -1,4 +1,32 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Base64
+
+// Auto-restore workspace essentials (debug.keystore and .env) if imported from GitHub
+val rootDebugKeystore = file("${rootDir}/debug.keystore")
+val rootKeystoreBase64 = file("${rootDir}/debug.keystore.base64")
+if (!rootDebugKeystore.exists() && rootKeystoreBase64.exists()) {
+  try {
+    val decoded = Base64.getMimeDecoder().decode(rootKeystoreBase64.readText().trim())
+    rootDebugKeystore.writeBytes(decoded)
+    println("[AutoRestore] Restored debug.keystore from debug.keystore.base64")
+  } catch (e: Exception) {
+    println("[AutoRestore] Warning: Failed to restore debug.keystore: ${e.message}")
+  }
+}
+
+val rootEnv = file("${rootDir}/.env")
+val rootEnvExample = file("${rootDir}/.env.example")
+if (!rootEnvExample.exists()) {
+  rootEnvExample.writeText("GEMINI_API_KEY=your_api_key_here\n")
+}
+if (!rootEnv.exists()) {
+  try {
+    rootEnv.writeText(rootEnvExample.readText())
+    println("[AutoRestore] Restored .env from .env.example")
+  } catch (e: Exception) {
+    println("[AutoRestore] Warning: Failed to restore .env: ${e.message}")
+  }
+}
 
 plugins {
   alias(libs.plugins.android.application)
