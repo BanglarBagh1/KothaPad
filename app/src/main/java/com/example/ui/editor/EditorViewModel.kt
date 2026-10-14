@@ -92,6 +92,21 @@ class EditorViewModel(
     private val _canRedo = MutableStateFlow(false)
     val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
 
+    // Reading Mode State
+    private val _isReadingMode = MutableStateFlow(false)
+    val isReadingMode: StateFlow<Boolean> = _isReadingMode.asStateFlow()
+
+    fun setReadingMode(enabled: Boolean) {
+        if (enabled && dictationState.value !is DictationState.Idle) {
+            return
+        }
+        _isReadingMode.value = enabled
+    }
+
+    fun toggleReadingMode() {
+        setReadingMode(!_isReadingMode.value)
+    }
+
     // Supervisor states
     val dictationState: StateFlow<DictationState> = speechSupervisor.state
     val partialText: StateFlow<String> = speechSupervisor.partialText
@@ -348,6 +363,7 @@ class EditorViewModel(
     }
 
     fun loadNote(note: Note) {
+        _isReadingMode.value = false
         pauseSessionTimerAndPersist()
         flushAutoSave()
         _currentNote.value = note
@@ -846,6 +862,7 @@ class EditorViewModel(
     }
 
     fun startDictation() {
+        _isReadingMode.value = false
         val lang = _currentNote.value?.languageCode ?: defaultLanguage.value
         val mode = DictationMode.valueOf(dictationModePref.value)
 
@@ -928,6 +945,7 @@ class EditorViewModel(
         customTitle: String? = null,
         startRecording: Boolean = false
     ) {
+        _isReadingMode.value = false
         flushAutoSave()
         viewModelScope.launch(Dispatchers.IO) {
             val defaultLang = defaultLanguage.value

@@ -7,6 +7,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.ime
@@ -68,6 +70,7 @@ class MainActivity : ComponentActivity() {
             val userWantsBuiltIn by viewModel.userWantsBuiltInKeyboard.collectAsState()
             val dictationState by viewModel.dictationState.collectAsState()
             val onboardingCompleted by viewModel.onboardingCompletedPref.collectAsState()
+            val isReadingMode by viewModel.isReadingMode.collectAsState()
 
             val density = LocalDensity.current
             val imeBottom = WindowInsets.ime.getBottom(density)
@@ -76,9 +79,13 @@ class MainActivity : ComponentActivity() {
             var lastBackPressTime by remember { mutableStateOf(0L) }
 
             // Centralized Back Navigation Hierarchy
+            // Priority 0: Reading mode active -> Exit reading mode first
             // Priority 1: System keyboard open -> Do NOT intercept, let default behavior dismiss keyboard
-            BackHandler(enabled = !isImeVisible) {
+            BackHandler(enabled = !isImeVisible || isReadingMode) {
                 when {
+                    isReadingMode -> {
+                        viewModel.setReadingMode(false)
+                    }
                     // Priority 2: Dialog, bottom sheet, popup, or key customization open -> close it
                     editingKey != null -> {
                         viewModel.editingKey.value = null
@@ -366,6 +373,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        window?.let {
+            WindowCompat.getInsetsController(it, it.decorView).show(WindowInsetsCompat.Type.navigationBars())
+        }
         viewModel.onAppForegroundStateChanged(false)
         viewModel.flushAutoSave()
     }

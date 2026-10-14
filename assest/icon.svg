@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141419" />
+      <stop offset="50%" stop-color="#0D0D10" />
+      <stop offset="100%" stop-color="#08080A" />
+    </linearGradient>
+    <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FF7043" stop-opacity="0.22" />
+      <stop offset="60%" stop-color="#FF7043" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#FF7043" stop-opacity="0" />
+    </radialGradient>
+    <filter id="subtleShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <!-- App Icon Base Squircle -->
+  <rect width="108" height="108" rx="24" fill="url(#bgGrad)" />
+  <rect width="106" height="106" x="1" y="1" rx="23" fill="none" stroke="#262630" stroke-width="1" />
+
+  <!-- Warm Ember Radial Glow in Center -->
+  <circle cx="54" cy="54" r="44" fill="url(#glowGrad)" />
+
+  <!-- Subtle Accent Discs -->
+  <circle cx="54" cy="54" r="38" fill="#1B1411" />
+  <circle cx="54" cy="54" r="42" fill="none" stroke="#2E1C14" stroke-width="1" />
+
+  <!-- Foreground Group with Soft Shadow -->
+  <g filter="url(#subtleShadow)">
+    <!-- Voice Soundwaves (Left) -->
+    <path d="M27,47 L27,61" stroke="#FF8A50" stroke-width="3.2" stroke-linecap="round" />
+    <path d="M33,40 L33,68" stroke="#FFA726" stroke-width="3.2" stroke-linecap="round" />
+    <path d="M39,34 L39,74" stroke="#FF7043" stroke-width="3.2" stroke-linecap="round" />
+
+    <!-- Center Calligraphic Pen Nib -->
+    <!-- Nib Body -->
+    <path d="M46,31 L58,31 L64,48 L55,75 L52,75 L43,48 Z" fill="#FF7043" />
+    <!-- Nib Highlight Facet -->
+    <path d="M46,31 L52,31 L52,75 L43,48 Z" fill="#FFA270" />
+    <!-- Nib Center Ink Slit -->
+    <path d="M52,47 L52,75" stroke="#0D0D10" stroke-width="1.8" stroke-linecap="round" />
+    <!-- Breather Hole -->
+    <circle cx="52" cy="46" r="2.8" fill="#0D0D10" />
+    <!-- Golden Collar Band on Nib -->
+    <path d="M46,31 L58,31 L58,35 L46,35 Z" fill="#FFD54F" />
+
+    <!-- Speech Waves to Cursor (Right) -->
+    <path d="M69,38 L69,70" stroke="#FFA726" stroke-width="3" stroke-linecap="round" />
+    <path d="M75,44 L75,64" stroke="#FF8A50" stroke-width="3" stroke-linecap="round" />
+
+    <!-- Text Cursor (I-Beam) in Crisp White -->
+    <path d="M79,30 L85,30" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+    <path d="M82,30 L82,78" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" />
+    <path d="M79,78 L85,78" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+  </g>
+</svg>

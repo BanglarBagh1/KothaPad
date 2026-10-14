@@ -29,24 +29,33 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -148,6 +157,7 @@ fun EditorScreen(
     val allNotes by viewModel.allNotes.collectAsState()
     val allStamps by viewModel.allStamps.collectAsState()
     val textFieldValue by viewModel.textFieldValue.collectAsState()
+    val isReadingMode by viewModel.isReadingMode.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
     val dictationState by viewModel.dictationState.collectAsState()
@@ -267,9 +277,32 @@ fun EditorScreen(
         }
     }
 
-    // Keep text field focused so cursor is always visualized
-    LaunchedEffect(currentNote?.id) {
-        focusRequester.requestFocus()
+    // Keep text field focused so cursor is always visualized when not in reading mode
+    LaunchedEffect(currentNote?.id, isReadingMode) {
+        if (!isReadingMode) {
+            focusRequester.requestFocus()
+        } else {
+            keyboardController?.hide()
+            focusManager.clearFocus(force = true)
+        }
+    }
+
+    // Immersive mode: hide navigation bars when in Reading Mode, restore on exit or pause/dispose
+    DisposableEffect(isReadingMode) {
+        val activity = context as? Activity
+        val window = activity?.window
+        if (window != null && isReadingMode) {
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            insetsController.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController.hide(WindowInsetsCompat.Type.navigationBars())
+        }
+        onDispose {
+            if (window != null) {
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.show(WindowInsetsCompat.Type.navigationBars())
+            }
+        }
     }
 
 
@@ -318,18 +351,20 @@ fun EditorScreen(
         modifier = modifier
             .fillMaxSize()
             // Performing existing gesture by swiping from left to right on screen launches Note Manager!
-            .pointerInput(isNoteManagerOpen) {
-                detectHorizontalDragGestures { change, dragAmount ->
-                    if (dragAmount > 35f && !isNoteManagerOpen) {
-                        change.consume()
-                        keyboardController?.hide()
-                        focusManager.clearFocus(force = true)
-                        viewModel.isNoteManagerOpen.value = true
-                    } else if (dragAmount < -35f && !isNoteManagerOpen) {
-                        change.consume()
-                        keyboardController?.hide()
-                        focusManager.clearFocus(force = true)
-                        viewModel.navigateTo("SETTINGS")
+            .pointerInput(isNoteManagerOpen, isReadingMode) {
+                if (!isReadingMode) {
+                    detectHorizontalDragGestures { change, dragAmount ->
+                        if (dragAmount > 35f && !isNoteManagerOpen) {
+                            change.consume()
+                            keyboardController?.hide()
+                            focusManager.clearFocus(force = true)
+                            viewModel.isNoteManagerOpen.value = true
+                        } else if (dragAmount < -35f && !isNoteManagerOpen) {
+                            change.consume()
+                            keyboardController?.hide()
+                            focusManager.clearFocus(force = true)
+                            viewModel.navigateTo("SETTINGS")
+                        }
                     }
                 }
             }
@@ -341,90 +376,92 @@ fun EditorScreen(
                 .imePadding()
                 .testTag("editor_screen"),
             topBar = {
-                Column {
-                    EditorTopBar(
-                        noteTitle = currentNote?.title ?: "Untitled Note",
-                        currentLanguageCode = activeLanguage,
-                        isKeyboardEditMode = keyboardEditMode,
-                        onMenuClick = {
-                            keyboardController?.hide()
-                            focusManager.clearFocus(force = true)
-                            viewModel.isNoteManagerOpen.value = true
-                        },
-                        onTitleClick = { viewModel.showRenameDialog.value = true },
-                        onLanguageClick = { viewModel.showLanguagePicker.value = true },
-                        onLanguageLongClick = { viewModel.cycleFavoriteLanguage() },
-                        onShareClick = {
-                            val sendIntent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                putExtra(Intent.EXTRA_TEXT, textFieldValue.text)
-                                putExtra(Intent.EXTRA_TITLE, currentNote?.title ?: "Note")
-                                type = "text/plain"
-                            }
-                            context.startActivity(Intent.createChooser(sendIntent, "Share Note via"))
-                        },
-                        onNewNoteClick = {
-                            if (newNoteLocationMode == "ASK_POPUP" || askBeforeCreating) {
-                                editorNewNoteFolder = if (currentNote?.folder?.isNotBlank() == true) currentNote!!.folder else "General"
-                                editorNewNoteTitle = ""
-                                editorShowNewFolderField = false
-                                editorNewFolderNameInput = ""
-                                showNewNoteDialogFromEditor = true
-                            } else {
-                                viewModel.createNewNote()
-                            }
-                        },
-                        onSettingsClick = { viewModel.navigateTo("SETTINGS") },
-                        onToggleKeyboardEditMode = { viewModel.setKeyboardEditMode(!keyboardEditMode) },
-                        onClearNoteClick = { viewModel.clearCurrentNoteText() },
-                        onDeleteNoteClick = {
-                            currentNote?.let { note ->
-                                viewModel.trashNote(note)
-                                scope.launch {
-                                    val result = snackbarHostState.showSnackbar(
-                                        message = "Note moved to trash",
-                                        actionLabel = "Undo",
-                                        duration = SnackbarDuration.Short
-                                    )
-                                    if (result == SnackbarResult.ActionPerformed) {
-                                        viewModel.restoreLastDeletedNote()
+                if (!isReadingMode) {
+                    Column {
+                        EditorTopBar(
+                            noteTitle = currentNote?.title ?: "Untitled Note",
+                            currentLanguageCode = activeLanguage,
+                            isKeyboardEditMode = keyboardEditMode,
+                            onMenuClick = {
+                                keyboardController?.hide()
+                                focusManager.clearFocus(force = true)
+                                viewModel.isNoteManagerOpen.value = true
+                            },
+                            onTitleClick = { viewModel.showRenameDialog.value = true },
+                            onLanguageClick = { viewModel.showLanguagePicker.value = true },
+                            onLanguageLongClick = { viewModel.cycleFavoriteLanguage() },
+                            onShareClick = {
+                                val sendIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_TEXT, textFieldValue.text)
+                                    putExtra(Intent.EXTRA_TITLE, currentNote?.title ?: "Note")
+                                    type = "text/plain"
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "Share Note via"))
+                            },
+                            onNewNoteClick = {
+                                if (newNoteLocationMode == "ASK_POPUP" || askBeforeCreating) {
+                                    editorNewNoteFolder = if (currentNote?.folder?.isNotBlank() == true) currentNote!!.folder else "General"
+                                    editorNewNoteTitle = ""
+                                    editorShowNewFolderField = false
+                                    editorNewFolderNameInput = ""
+                                    showNewNoteDialogFromEditor = true
+                                } else {
+                                    viewModel.createNewNote()
+                                }
+                            },
+                            onSettingsClick = { viewModel.navigateTo("SETTINGS") },
+                            onToggleKeyboardEditMode = { viewModel.setKeyboardEditMode(!keyboardEditMode) },
+                            onClearNoteClick = { viewModel.clearCurrentNoteText() },
+                            onDeleteNoteClick = {
+                                currentNote?.let { note ->
+                                    viewModel.trashNote(note)
+                                    scope.launch {
+                                        val result = snackbarHostState.showSnackbar(
+                                            message = "Note moved to trash",
+                                            actionLabel = "Undo",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            viewModel.restoreLastDeletedNote()
+                                        }
                                     }
                                 }
+                            },
+                            onHelpClick = {
+                                allNotes.find { it.title.contains("Quick Tips") }?.let {
+                                    viewModel.loadNote(it)
+                                }
                             }
-                        },
-                        onHelpClick = {
-                            allNotes.find { it.title.contains("Quick Tips") }?.let {
-                                viewModel.loadNote(it)
-                            }
-                        }
-                    )
+                        )
 
-                    EditorToolBar(
-                        isInAppKeyboardActive = builtInKeyboardVisible,
-                        dictationState = dictationState,
-                        audioSourceType = audioSourceType,
-                        isOnDevice = isOnDevice,
-                        wordCount = wordCount,
-                        charCount = charCount,
-                        showWordCount = showWordCount,
-                        onZoomOutClick = { viewModel.zoomOut() },
-                        onZoomInClick = { viewModel.zoomIn() },
-                        onStyleSheetClick = { viewModel.showStyleSheet.value = true },
-                        onHighlightClick = { viewModel.showStyleSheet.value = true },
-                        onKeyboardToggleClick = {
-                            viewModel.setUserWantsBuiltInKeyboard(!builtInKeyboardVisible)
-                        },
-                        toolbarItemOrder = toolbarItemOrder,
-                        hiddenItems = toolbarHiddenItems,
-                        statusChipStyle = statusChipStyle,
-                        hapticsLevel = hapticsLevel,
-                        sessionDurationSec = currentNote?.sessionDurationSec ?: 0L
-                    )
+                        EditorToolBar(
+                            isInAppKeyboardActive = builtInKeyboardVisible,
+                            dictationState = dictationState,
+                            audioSourceType = audioSourceType,
+                            isOnDevice = isOnDevice,
+                            wordCount = wordCount,
+                            charCount = charCount,
+                            showWordCount = showWordCount,
+                            onZoomOutClick = { viewModel.zoomOut() },
+                            onZoomInClick = { viewModel.zoomIn() },
+                            onStyleSheetClick = { viewModel.showStyleSheet.value = true },
+                            onHighlightClick = { viewModel.showStyleSheet.value = true },
+                            onKeyboardToggleClick = {
+                                viewModel.setUserWantsBuiltInKeyboard(!builtInKeyboardVisible)
+                            },
+                            toolbarItemOrder = toolbarItemOrder,
+                            hiddenItems = toolbarHiddenItems,
+                            statusChipStyle = statusChipStyle,
+                            hapticsLevel = hapticsLevel,
+                            sessionDurationSec = currentNote?.sessionDurationSec ?: 0L
+                        )
+                    }
                 }
             },
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
-                if (builtInKeyboardVisible) {
+                if (!isReadingMode && builtInKeyboardVisible) {
                     InAppKeyboard(
                         layout = keyboardLayout,
                         keyHeightDp = keyHeightDp,
@@ -452,23 +489,27 @@ fun EditorScreen(
                     .onGloballyPositioned { coords ->
                         viewportCoordinates = coords
                     }
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        focusRequester.requestFocus()
-                        if (!userWantsBuiltIn) {
-                            keyboardController?.show()
-                            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                            val activity = context as? Activity
-                            val view = activity?.currentFocus ?: activity?.window?.decorView
-                            if (view != null) {
-                                imm?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+                    .then(
+                        if (!isReadingMode) {
+                            Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                focusRequester.requestFocus()
+                                if (!userWantsBuiltIn) {
+                                    keyboardController?.show()
+                                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                                    val activity = context as? Activity
+                                    val view = activity?.currentFocus ?: activity?.window?.decorView
+                                    if (view != null) {
+                                        imm?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+                                    }
+                                } else {
+                                    keyboardController?.hide()
+                                }
                             }
-                        } else {
-                            keyboardController?.hide()
-                        }
-                    }
+                        } else Modifier
+                    )
             ) {
                 val viewportMaxHeight = maxHeight
                 val scrollState = rememberScrollState()
@@ -544,156 +585,208 @@ fun EditorScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
-                        .padding(horizontal = marginDp.dp, vertical = 12.dp)
+                        .padding(horizontal = marginDp.dp, vertical = if (isReadingMode) 20.dp else 12.dp)
                         .then(
                             if (maxWidthDp > 0) Modifier.widthIn(max = maxWidthDp.dp).align(Alignment.TopCenter)
                             else Modifier
                         )
                 ) {
-
-
-                    val defaultKeyboardController = LocalSoftwareKeyboardController.current
-                    val customKeyboardController = remember(userWantsBuiltIn, defaultKeyboardController) {
-                        object : SoftwareKeyboardController {
-                            override fun show() {
-                                if (!userWantsBuiltIn) {
-                                    defaultKeyboardController?.show()
-                                }
-                            }
-                            override fun hide() {
-                                defaultKeyboardController?.hide()
-                            }
-                        }
-                    }
-
-                    // Main Editable Text Field
-                    key(userWantsBuiltIn) {
-                        CompositionLocalProvider(
-                            LocalSoftwareKeyboardController provides customKeyboardController
-                        ) {
-                            InterceptPlatformTextInput(
-                                interceptor = { request, nextHandler ->
-                                    if (userWantsBuiltIn) {
-                                        // Custom keyboard mode: prevent system IME from opening while keeping
-                                        // text field editable with a visible, blinking cursor and no popup flickering
-                                        awaitCancellation()
+                    if (isReadingMode) {
+                        SelectionContainer {
+                            Text(
+                                text = textFieldValue.text.ifEmpty { "Empty note" },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("reading_mode_text"),
+                                style = TextStyle(
+                                    fontFamily = fontFam,
+                                    fontSize = fontSize.sp,
+                                    lineHeight = (fontSize * lineSpacing).sp,
+                                    letterSpacing = letterSpacing.sp,
+                                    textAlign = textAlignValue,
+                                    color = if (textFieldValue.text.isEmpty()) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                                     } else {
-                                        // System keyboard mode: pass through directly to Android platform IME
-                                        nextHandler.startInputMethod(request)
+                                        MaterialTheme.colorScheme.onBackground
+                                    }
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(96.dp))
+                    } else {
+                        val defaultKeyboardController = LocalSoftwareKeyboardController.current
+                        val customKeyboardController = remember(userWantsBuiltIn, defaultKeyboardController) {
+                            object : SoftwareKeyboardController {
+                                override fun show() {
+                                    if (!userWantsBuiltIn) {
+                                        defaultKeyboardController?.show()
                                     }
                                 }
+                                override fun hide() {
+                                    defaultKeyboardController?.hide()
+                                }
+                            }
+                        }
+
+                        // Main Editable Text Field
+                        key(userWantsBuiltIn) {
+                            CompositionLocalProvider(
+                                LocalSoftwareKeyboardController provides customKeyboardController
                             ) {
-                                BasicTextField(
-                                    value = textFieldValue,
-                                    onValueChange = { newValue ->
-                                        viewModel.updateTextFieldValue(newValue)
-                                    },
-                                    onTextLayout = { result ->
-                                        textLayoutResult = result
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .defaultMinSize(minHeight = 240.dp)
-                                        .onGloballyPositioned { coords ->
-                                            textFieldCoordinates = coords
-                                        }
-                                        .focusRequester(focusRequester)
-                                        .testTag("editor_text_input"),
-                                    textStyle = TextStyle(
-                                        fontFamily = fontFam,
-                                        fontSize = fontSize.sp,
-                                        lineHeight = (fontSize * lineSpacing).sp,
-                                        letterSpacing = letterSpacing.sp,
-                                        textAlign = textAlignValue,
-                                        color = MaterialTheme.colorScheme.onBackground
-                                    ),
-                                    cursorBrush = SolidColor(SaffronPrimary),
-                                    decorationBox = { innerTextField ->
-                                        Box(modifier = Modifier.fillMaxWidth()) {
-                                            if (textFieldValue.text.isEmpty() && partialText.isEmpty()) {
-                                                Text(
-                                                    text = "Start typing or tap the mic to speak...",
-                                                    style = TextStyle(
-                                                        fontFamily = fontFam,
-                                                        fontSize = fontSize.sp,
-                                                        lineHeight = (fontSize * lineSpacing).sp,
-                                                        letterSpacing = letterSpacing.sp,
-                                                        textAlign = textAlignValue,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                                    )
-                                                )
-                                            }
-                                            innerTextField()
+                                InterceptPlatformTextInput(
+                                    interceptor = { request, nextHandler ->
+                                        if (userWantsBuiltIn) {
+                                            // Custom keyboard mode: prevent system IME from opening while keeping
+                                            // text field editable with a visible, blinking cursor and no popup flickering
+                                            awaitCancellation()
+                                        } else {
+                                            // System keyboard mode: pass through directly to Android platform IME
+                                            nextHandler.startInputMethod(request)
                                         }
                                     }
-                                )
-                            }
-                        }
-                    }
-
-                    // Interim Speech Text Display
-                    if (partialText.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                                .testTag("interim_speech_text")
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = "🎙️ ", fontSize = 13.sp)
-                                Text(
-                                    text = partialText,
-                                    style = TextStyle(
-                                        fontFamily = fontFam,
-                                        fontSize = (fontSize - 1).sp,
-                                        fontStyle = FontStyle.Italic,
-                                        fontWeight = FontWeight.Medium,
-                                        color = SaffronPrimary
+                                ) {
+                                    BasicTextField(
+                                        value = textFieldValue,
+                                        onValueChange = { newValue ->
+                                            viewModel.updateTextFieldValue(newValue)
+                                        },
+                                        onTextLayout = { result ->
+                                            textLayoutResult = result
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .defaultMinSize(minHeight = 240.dp)
+                                            .onGloballyPositioned { coords ->
+                                                textFieldCoordinates = coords
+                                            }
+                                            .focusRequester(focusRequester)
+                                            .testTag("editor_text_input"),
+                                        textStyle = TextStyle(
+                                            fontFamily = fontFam,
+                                            fontSize = fontSize.sp,
+                                            lineHeight = (fontSize * lineSpacing).sp,
+                                            letterSpacing = letterSpacing.sp,
+                                            textAlign = textAlignValue,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        ),
+                                        cursorBrush = SolidColor(SaffronPrimary),
+                                        decorationBox = { innerTextField ->
+                                            Box(modifier = Modifier.fillMaxWidth()) {
+                                                if (textFieldValue.text.isEmpty() && partialText.isEmpty()) {
+                                                    Text(
+                                                        text = "Start typing or tap the mic to speak...",
+                                                        style = TextStyle(
+                                                            fontFamily = fontFam,
+                                                            fontSize = fontSize.sp,
+                                                            lineHeight = (fontSize * lineSpacing).sp,
+                                                            letterSpacing = letterSpacing.sp,
+                                                            textAlign = textAlignValue,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                        )
+                                                    )
+                                                }
+                                                innerTextField()
+                                            }
+                                        }
                                     )
-                                )
+                                }
                             }
                         }
-                    }
 
-                    // Generous bottom space so that typing at the bottom can scroll up to the vertical middle of the viewport
-                    val bottomSpacerHeight = remember(viewportMaxHeight) {
-                        (viewportMaxHeight * 0.65f).coerceAtLeast(200.dp)
+                        // Interim Speech Text Display
+                        if (partialText.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .testTag("interim_speech_text")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(text = "🎙️ ", fontSize = 13.sp)
+                                    Text(
+                                        text = partialText,
+                                        style = TextStyle(
+                                            fontFamily = fontFam,
+                                            fontSize = (fontSize - 1).sp,
+                                            fontStyle = FontStyle.Italic,
+                                            fontWeight = FontWeight.Medium,
+                                            color = SaffronPrimary
+                                        )
+                                    )
+                                }
+                            }
+                        }
+
+                        // Generous bottom space so that typing at the bottom can scroll up to the vertical middle of the viewport
+                        val bottomSpacerHeight = remember(viewportMaxHeight) {
+                            (viewportMaxHeight * 0.65f).coerceAtLeast(200.dp)
+                        }
+                        Spacer(modifier = Modifier.height(bottomSpacerHeight))
                     }
-                    Spacer(modifier = Modifier.height(bottomSpacerHeight))
                 }
 
-                // Bottom Floating Cluster
-                EditorFloatingCluster(
-                    canUndo = canUndo,
-                    canRedo = canRedo,
-                    dictationState = dictationState,
-                    dictationMode = currentDictationMode,
-                    audioLevelRms = audioLevelRms,
-                    onUndoClick = { viewModel.undo() },
-                    onRedoClick = { viewModel.redo() },
-                    onCopyClick = {
-                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        val clip = android.content.ClipData.newPlainText("KothaPad Note", textFieldValue.text)
-                        clipboard.setPrimaryClip(clip)
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Note text copied to clipboard")
+                if (isReadingMode) {
+                    // ONE small semi-transparent floating "exit reading mode" button positioned at the BOTTOM-RIGHT corner
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(16.dp)
+                    ) {
+                        FilledIconButton(
+                            onClick = {
+                                viewModel.setReadingMode(false)
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("exit_reading_mode_button"),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = "Exit Reading Mode",
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
-                    },
-                    onMicClick = { viewModel.toggleDictation() },
-                    onMicLongClick = { },
-                    onModeSelect = { mode -> viewModel.setDictationMode(mode) },
-                    onPushToTalkPress = { isPressed -> viewModel.onPushToTalkPress(isPressed) },
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    micButtonSize = micButtonSize,
-                    micButtonShape = micButtonShape,
-                    micButtonColor = micButtonColor,
-                    micButtonPosition = micButtonPosition,
-                    micButtonOffsetY = micButtonOffsetY,
-                    dictationAnimationStyle = dictationAnimationStyle,
-                    hapticsLevel = hapticsLevel
-                )
+                    }
+                } else {
+                    // Bottom Floating Cluster
+                    EditorFloatingCluster(
+                        canUndo = canUndo,
+                        canRedo = canRedo,
+                        dictationState = dictationState,
+                        dictationMode = currentDictationMode,
+                        audioLevelRms = audioLevelRms,
+                        onUndoClick = { viewModel.undo() },
+                        onRedoClick = { viewModel.redo() },
+                        onCopyClick = {
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clip = android.content.ClipData.newPlainText("KothaPad Note", textFieldValue.text)
+                            clipboard.setPrimaryClip(clip)
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Note text copied to clipboard")
+                            }
+                        },
+                        onMicClick = { viewModel.toggleDictation() },
+                        onMicLongClick = { },
+                        onModeSelect = { mode -> viewModel.setDictationMode(mode) },
+                        onPushToTalkPress = { isPressed -> viewModel.onPushToTalkPress(isPressed) },
+                        onReadingModeClick = { viewModel.setReadingMode(true) },
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        micButtonSize = micButtonSize,
+                        micButtonShape = micButtonShape,
+                        micButtonColor = micButtonColor,
+                        micButtonPosition = micButtonPosition,
+                        micButtonOffsetY = micButtonOffsetY,
+                        dictationAnimationStyle = dictationAnimationStyle,
+                        hapticsLevel = hapticsLevel
+                    )
+                }
             }
         }
 

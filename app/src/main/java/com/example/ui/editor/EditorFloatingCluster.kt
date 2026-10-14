@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.ContentCopy
@@ -174,6 +175,7 @@ fun EditorFloatingCluster(
     onMicLongClick: () -> Unit,
     onModeSelect: (DictationMode) -> Unit,
     onPushToTalkPress: (Boolean) -> Unit,
+    onReadingModeClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     micButtonSize: String = "MEDIUM",
     micButtonShape: String = "CIRCLE",
@@ -472,9 +474,43 @@ fun EditorFloatingCluster(
         }
     }
 
+    val readingModeButtonContent = @Composable {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+            shadowElevation = 6.dp,
+            modifier = Modifier.testTag("floating_reading_mode_container")
+        ) {
+            Box(
+                modifier = Modifier.padding(4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                FilledIconButton(
+                    onClick = {
+                        triggerHaptic()
+                        onReadingModeClick()
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .testTag("reading_mode_button"),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                        contentDescription = "Reading Mode",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+
     val position = micButtonPosition.uppercase()
 
-    // Single unified horizontal row: [undo] [redo] [ horizontal waveform ] [Record button]
+    // Single unified horizontal row: [undo] [redo] [ horizontal waveform / Reading Mode button ] [Record button]
     // All buttons and waveform vertically centered on the exact same horizontal axis
     Row(
         modifier = modifier
@@ -490,54 +526,62 @@ fun EditorFloatingCluster(
     ) {
         if (position == "LEFT") {
             micFabContent()
-            AnimatedVisibility(
-                visible = isRecording,
-                enter = fadeIn(tween(200)) + expandHorizontally(tween(250)),
-                exit = fadeOut(tween(200)) + shrinkHorizontally(tween(250)),
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 10.dp, end = 8.dp)
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                    shadowElevation = 4.dp,
-                    modifier = Modifier.height(44.dp)
-                ) {
-                    HorizontalRecordingWaveform(
-                        audioLevelRms = audioLevelRms,
-                        accentColor = micColor,
+                if (isRecording) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                        shadowElevation = 4.dp,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp)
-                    )
+                            .fillMaxWidth()
+                            .height(44.dp)
+                    ) {
+                        HorizontalRecordingWaveform(
+                            audioLevelRms = audioLevelRms,
+                            accentColor = micColor,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp)
+                        )
+                    }
+                } else {
+                    readingModeButtonContent()
                 }
             }
             editClusterContent()
         } else {
-            // Default & Center: Left controls, Waveform, Mic on right
+            // Default & Center: Left controls, Waveform or Reading Mode centered in gap, Mic on right
             editClusterContent()
-            AnimatedVisibility(
-                visible = isRecording,
-                enter = fadeIn(tween(200)) + expandHorizontally(tween(250)),
-                exit = fadeOut(tween(200)) + shrinkHorizontally(tween(250)),
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 8.dp, end = 10.dp)
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                    shadowElevation = 4.dp,
-                    modifier = Modifier.height(44.dp)
-                ) {
-                    HorizontalRecordingWaveform(
-                        audioLevelRms = audioLevelRms,
-                        accentColor = micColor,
+                if (isRecording) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                        shadowElevation = 4.dp,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp)
-                    )
+                            .fillMaxWidth()
+                            .height(44.dp)
+                    ) {
+                        HorizontalRecordingWaveform(
+                            audioLevelRms = audioLevelRms,
+                            accentColor = micColor,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp)
+                        )
+                    }
+                } else {
+                    readingModeButtonContent()
                 }
             }
             micFabContent()
