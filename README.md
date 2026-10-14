@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com">
-    <img src="assest/icon.svg" width="128" height="128" alt="KothaPad Logo" />
+    <img src="assets/icon.svg" width="128" height="128" alt="KothaPad Logo" />
   </a>
 </p>
 
@@ -136,7 +136,7 @@ KothaPad processes incoming voice streams through an automated three-stage text 
 
 | App Icon | Dictation & In-App Keyboard | Notes Manager & Folders |
 |:---:|:---:|:---:|
-| <img src="assest/icon.svg" width="160" height="160" alt="KothaPad Icon" /> | Continuous speech with concurrent Bengali & English typing | Folder management, multi-tag filtering & batch operations |
+| <img src="assets/icon.svg" width="160" height="160" alt="KothaPad Icon" /> | Continuous speech with concurrent Bengali & English typing | Folder management, multi-tag filtering & batch operations |
 
 ---
 
