@@ -23,7 +23,8 @@ import java.util.zip.ZipOutputStream
 data class BackupSummary(
     val notesCount: Int,
     val templatesCount: Int,
-    val commandsCount: Int = 0
+    val commandsCount: Int = 0,
+    val skippedCount: Int = 0
 )
 
 data class ParsedBackupData(
@@ -38,7 +39,7 @@ data class ParsedBackupData(
 
 object BackupManager {
 
-    const val CURRENT_BACKUP_VERSION = 1
+    const val CURRENT_BACKUP_VERSION = 2
     const val MANIFEST_FILE = "manifest.json"
     const val NOTES_FILE = "notes.json"
     const val TEMPLATES_FILE = "templates.json"
@@ -163,7 +164,7 @@ object BackupManager {
             throw IllegalArgumentException("Corrupted '$MANIFEST_FILE': ${e.message}")
         }
 
-        val backupVersion = manifestObj.optInt("backupVersion", -1)
+        val backupVersion = safeOptInt(manifestObj, "backupVersion", -1)
         if (backupVersion <= 0) {
             throw IllegalArgumentException("Invalid backup file: 'backupVersion' is missing or invalid.")
         }
@@ -172,7 +173,7 @@ object BackupManager {
         }
 
         val appVersion = manifestObj.optString("appVersion", "Unknown")
-        val timestamp = manifestObj.optLong("exportTimestamp", System.currentTimeMillis())
+        val timestamp = safeOptLong(manifestObj, "exportTimestamp", System.currentTimeMillis())
 
         // 2. Validate Notes
         val notesStr = entries[NOTES_FILE]
@@ -269,12 +270,13 @@ object BackupManager {
             }
 
             // Step 4: Replace Settings
-            preferencesManager.restoreAllPreferencesFromBackup(backupData.settings)
+            val skippedSettings = preferencesManager.restoreAllPreferencesFromBackup(backupData.settings)
 
             BackupSummary(
                 notesCount = backupData.notes.size,
                 templatesCount = backupData.stamps.size,
-                commandsCount = backupData.commands.size
+                commandsCount = backupData.commands.size,
+                skippedCount = skippedSettings
             )
         } catch (restoreException: Exception) {
             // Rollback immediately to prior state
@@ -327,21 +329,21 @@ object BackupManager {
 
     private fun jsonToNote(obj: JSONObject): Note {
         return Note(
-            id = obj.optLong("id", 0L),
+            id = safeOptLong(obj, "id", 0L),
             title = obj.optString("title", "Untitled Note"),
             content = obj.optString("content", ""),
-            createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
-            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
-            isPinned = obj.optBoolean("isPinned", false),
+            createdAt = safeOptLong(obj, "createdAt", System.currentTimeMillis()),
+            updatedAt = safeOptLong(obj, "updatedAt", System.currentTimeMillis()),
+            isPinned = safeOptBoolean(obj, "isPinned", false),
             languageCode = if (obj.isNull("languageCode")) null else obj.optString("languageCode"),
             highlightColor = if (obj.isNull("highlightColor")) null else obj.optString("highlightColor"),
-            fontSizeModifier = obj.optDouble("fontSizeModifier", 0.0).toFloat(),
+            fontSizeModifier = safeOptFloat(obj, "fontSizeModifier", 0.0f),
             folder = obj.optString("folder", "General"),
             tags = obj.optString("tags", ""),
-            isArchived = obj.optBoolean("isArchived", false),
-            isDeleted = obj.optBoolean("isDeleted", false),
-            deletedAt = if (obj.isNull("deletedAt")) null else obj.optLong("deletedAt"),
-            sessionDurationSec = obj.optLong("sessionDurationSec", 0L)
+            isArchived = safeOptBoolean(obj, "isArchived", false),
+            isDeleted = safeOptBoolean(obj, "isDeleted", false),
+            deletedAt = if (obj.isNull("deletedAt")) null else safeOptLong(obj, "deletedAt", 0L),
+            sessionDurationSec = safeOptLong(obj, "sessionDurationSec", 0L)
         )
     }
 
@@ -359,13 +361,13 @@ object BackupManager {
 
     private fun jsonToStamp(obj: JSONObject): Stamp {
         return Stamp(
-            id = obj.optLong("id", 0L),
+            id = safeOptLong(obj, "id", 0L),
             setName = obj.optString("setName", "Default"),
             label = obj.optString("label", "Untitled Template"),
             templateText = obj.optString("templateText", ""),
             voiceTriggerPhrase = if (obj.isNull("voiceTriggerPhrase")) null else obj.optString("voiceTriggerPhrase"),
-            orderIndex = obj.optInt("orderIndex", 0),
-            isPinned = obj.optBoolean("isPinned", false)
+            orderIndex = safeOptInt(obj, "orderIndex", 0),
+            isPinned = safeOptBoolean(obj, "isPinned", false)
         )
     }
 
@@ -383,13 +385,85 @@ object BackupManager {
 
     private fun jsonToSpokenCommand(obj: JSONObject): SpokenCommand {
         return SpokenCommand(
-            id = obj.optLong("id", 0L),
+            id = safeOptLong(obj, "id", 0L),
             language = obj.optString("language", "en"),
             phrase = obj.optString("phrase", ""),
             actionType = obj.optString("actionType", "PUNCTUATION"),
             replacementText = obj.optString("replacementText", ""),
             commandCode = if (obj.isNull("commandCode")) null else obj.optString("commandCode"),
-            isEnabled = obj.optBoolean("isEnabled", true)
+            isEnabled = safeOptBoolean(obj, "isEnabled", true)
         )
+    }
+
+    // --- Safe Type Conversion Helpers ---
+
+    fun safeToLong(value: Any?, default: Long = 0L): Long {
+        if (value == null || value == JSONObject.NULL) return default
+        return when (value) {
+            is Number -> value.toLong()
+            is String -> value.toLongOrNull() ?: default
+            is Boolean -> if (value) 1L else 0L
+            else -> default
+        }
+    }
+
+    fun safeToInt(value: Any?, default: Int = 0): Int {
+        if (value == null || value == JSONObject.NULL) return default
+        return when (value) {
+            is Number -> value.toInt()
+            is String -> value.toIntOrNull() ?: default
+            is Boolean -> if (value) 1 else 0
+            else -> default
+        }
+    }
+
+    fun safeToFloat(value: Any?, default: Float = 0.0f): Float {
+        if (value == null || value == JSONObject.NULL) return default
+        return when (value) {
+            is Number -> value.toFloat()
+            is String -> value.toFloatOrNull() ?: default
+            else -> default
+        }
+    }
+
+    fun safeToDouble(value: Any?, default: Double = 0.0): Double {
+        if (value == null || value == JSONObject.NULL) return default
+        return when (value) {
+            is Number -> value.toDouble()
+            is String -> value.toDoubleOrNull() ?: default
+            else -> default
+        }
+    }
+
+    fun safeToBoolean(value: Any?, default: Boolean = false): Boolean {
+        if (value == null || value == JSONObject.NULL) return default
+        return when (value) {
+            is Boolean -> value
+            is Number -> value.toInt() != 0
+            is String -> when {
+                value.equals("true", ignoreCase = true) -> true
+                value.equals("false", ignoreCase = true) -> false
+                value == "1" -> true
+                value == "0" -> false
+                else -> default
+            }
+            else -> default
+        }
+    }
+
+    fun safeOptLong(obj: JSONObject, key: String, default: Long = 0L): Long {
+        return safeToLong(obj.opt(key), default)
+    }
+
+    fun safeOptInt(obj: JSONObject, key: String, default: Int = 0): Int {
+        return safeToInt(obj.opt(key), default)
+    }
+
+    fun safeOptFloat(obj: JSONObject, key: String, default: Float = 0.0f): Float {
+        return safeToFloat(obj.opt(key), default)
+    }
+
+    fun safeOptBoolean(obj: JSONObject, key: String, default: Boolean = false): Boolean {
+        return safeToBoolean(obj.opt(key), default)
     }
 }

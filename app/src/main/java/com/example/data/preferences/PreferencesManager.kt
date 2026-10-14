@@ -1,7 +1,10 @@
 package com.example.data.preferences
 
 import android.content.Context
+import android.widget.Toast
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -9,9 +12,11 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -20,6 +25,16 @@ private val Context.dataStore by preferencesDataStore(name = "kothapad_settings"
 class PreferencesManager(private val context: Context) {
 
     private val syncPrefs = context.getSharedPreferences("kothapad_sync_prefs", Context.MODE_PRIVATE)
+
+    enum class PrefType {
+        BOOLEAN, INT, LONG, FLOAT, DOUBLE, STRING, STRING_SET
+    }
+
+    data class SettingRawEntry(
+        val key: String,
+        val type: String?,
+        val value: Any?
+    )
 
     companion object {
         val KEY_DICTATION_MODE = stringPreferencesKey("dictation_mode")
@@ -114,6 +129,167 @@ class PreferencesManager(private val context: Context) {
         val KEY_NEW_NOTE_NAMING_RULE = stringPreferencesKey("new_note_naming_rule")
         val KEY_AFTER_CREATING_NOTE = stringPreferencesKey("after_creating_note")
         val KEY_LAST_ACTIVE_FOLDER = stringPreferencesKey("last_active_folder")
+
+        val KNOWN_PREF_TYPES: Map<String, PrefType> = mapOf(
+            KEY_DICTATION_MODE.name to PrefType.STRING,
+            KEY_TIMED_MINUTES.name to PrefType.INT,
+            KEY_PAUSE_TOLERANCE_SECONDS.name to PrefType.INT,
+            KEY_IDLE_AUTO_STOP_MINUTES.name to PrefType.INT,
+            KEY_MUTE_BEEP_METHOD.name to PrefType.STRING,
+            KEY_MUTED_BY_APP.name to PrefType.BOOLEAN,
+            KEY_MUTED_MUSIC_VOL.name to PrefType.INT,
+            KEY_MUTED_SYSTEM_VOL.name to PrefType.INT,
+            KEY_SAVED_RINGER_MODE.name to PrefType.INT,
+            KEY_INSERTION_MODE.name to PrefType.STRING,
+            KEY_OFFLINE_PREFERRED.name to PrefType.BOOLEAN,
+            KEY_KEEP_SCREEN_ON.name to PrefType.BOOLEAN,
+            KEY_DEFAULT_LANGUAGE.name to PrefType.STRING,
+            KEY_FAVORITE_LANGUAGES.name to PrefType.STRING_SET,
+            KEY_APP_THEME.name to PrefType.STRING,
+            KEY_EDITOR_FONT_SIZE.name to PrefType.FLOAT,
+            KEY_EDITOR_LINE_SPACING.name to PrefType.FLOAT,
+            KEY_EDITOR_FONT_FAMILY.name to PrefType.STRING,
+            KEY_CUSTOM_PRIMARY_COLOR.name to PrefType.INT,
+            KEY_CUSTOM_BACKGROUND_COLOR.name to PrefType.INT,
+            KEY_CUSTOM_SURFACE_COLOR.name to PrefType.INT,
+            KEY_CUSTOM_TEXT_COLOR.name to PrefType.INT,
+            KEY_CUSTOM_SECONDARY_COLOR.name to PrefType.INT,
+            KEY_CUSTOM_FONT_PATH.name to PrefType.STRING,
+            KEY_CUSTOM_FONT_NAME.name to PrefType.STRING,
+            KEY_EDITOR_LETTER_SPACING.name to PrefType.FLOAT,
+            KEY_EDITOR_PARAGRAPH_SPACING.name to PrefType.INT,
+            KEY_EDITOR_TEXT_ALIGNMENT.name to PrefType.STRING,
+            KEY_EDITOR_MARGIN_DP.name to PrefType.INT,
+            KEY_EDITOR_MAX_WIDTH_DP.name to PrefType.INT,
+            KEY_TOOLBAR_ITEM_ORDER.name to PrefType.STRING,
+            KEY_TOOLBAR_HIDDEN_ITEMS.name to PrefType.STRING_SET,
+            KEY_LAST_OPENED_NOTE_ID.name to PrefType.LONG,
+            KEY_MIC_BUTTON_SIZE.name to PrefType.STRING,
+            KEY_MIC_BUTTON_SHAPE.name to PrefType.STRING,
+            KEY_MIC_BUTTON_COLOR.name to PrefType.STRING,
+            KEY_MIC_BUTTON_POSITION.name to PrefType.STRING,
+            KEY_MIC_BUTTON_OFFSET_Y.name to PrefType.INT,
+            KEY_STATUS_CHIP_STYLE.name to PrefType.STRING,
+            KEY_UI_DENSITY.name to PrefType.STRING,
+            KEY_CORNER_RADIUS_DP.name to PrefType.INT,
+            KEY_DICTATION_ANIMATION_STYLE.name to PrefType.STRING,
+            KEY_HAPTICS_LEVEL.name to PrefType.STRING,
+            KEY_PIPELINE_SPACING.name to PrefType.BOOLEAN,
+            KEY_PIPELINE_AUTOCAP.name to PrefType.BOOLEAN,
+            KEY_PIPELINE_COMMANDS.name to PrefType.BOOLEAN,
+            KEY_ONBOARDING_COMPLETED.name to PrefType.BOOLEAN,
+            KEY_KEYBOARD_TYPE.name to PrefType.STRING,
+            KEY_SHOW_WORD_COUNT.name to PrefType.BOOLEAN,
+            KEY_KEYBOARD_LAYOUT_JSON.name to PrefType.STRING,
+            KEY_KEYBOARD_KEY_HEIGHT_DP.name to PrefType.INT,
+            KEY_KEYBOARD_FONT_SIZE_SP.name to PrefType.INT,
+            KEY_KEYBOARD_HAPTIC.name to PrefType.BOOLEAN,
+            KEY_KEYBOARD_HOLD_BEHAVIOR.name to PrefType.STRING,
+            KEY_KEYBOARD_EDIT_MODE.name to PrefType.BOOLEAN,
+            KEY_TRASH_AUTO_EMPTY_DAYS.name to PrefType.INT,
+            KEY_DEFAULT_NEW_NOTE_FOLDER.name to PrefType.STRING,
+            KEY_SHOW_NOTE_METRICS_IN_LIST.name to PrefType.BOOLEAN,
+            KEY_NOTE_METRICS_STYLE.name to PrefType.STRING,
+            KEY_NOTE_METRICS_ORDER.name to PrefType.STRING,
+            KEY_NOTE_METRICS_HIDDEN_ITEMS.name to PrefType.STRING_SET,
+            KEY_KEYBOARD_LAYOUT_VERSION.name to PrefType.INT,
+            KEY_EXPANDED_FOLDERS.name to PrefType.STRING_SET,
+            KEY_CUSTOM_FOLDERS.name to PrefType.STRING_SET,
+            KEY_NEW_NOTE_LOCATION_MODE.name to PrefType.STRING,
+            KEY_FIXED_NEW_NOTE_FOLDER.name to PrefType.STRING,
+            KEY_ASK_BEFORE_CREATING.name to PrefType.BOOLEAN,
+            KEY_ASK_CHOOSE_TEMPLATE_TOGGLE.name to PrefType.BOOLEAN,
+            KEY_ASK_START_RECORDING_TOGGLE.name to PrefType.BOOLEAN,
+            KEY_NEW_NOTE_NAMING_RULE.name to PrefType.STRING,
+            KEY_AFTER_CREATING_NOTE.name to PrefType.STRING,
+            KEY_LAST_ACTIVE_FOLDER.name to PrefType.STRING
+        )
+
+        val KNOWN_SYNC_PREF_TYPES: Map<String, PrefType> = mapOf(
+            "last_opened_note_id" to PrefType.LONG,
+            "onboarding_completed" to PrefType.BOOLEAN,
+            "expanded_folders" to PrefType.STRING_SET,
+            "last_active_folder" to PrefType.STRING
+        )
+
+        fun safeToLong(value: Any?): Long {
+            return when (value) {
+                is Number -> value.toLong()
+                is String -> value.toLongOrNull()
+                    ?: throw IllegalArgumentException("Cannot convert string '$value' to Long")
+                is Boolean -> if (value) 1L else 0L
+                else -> throw IllegalArgumentException("Cannot convert $value of type ${value?.javaClass?.simpleName} to Long")
+            }
+        }
+
+        fun safeToInt(value: Any?): Int {
+            return when (value) {
+                is Number -> value.toInt()
+                is String -> value.toIntOrNull()
+                    ?: throw IllegalArgumentException("Cannot convert string '$value' to Int")
+                is Boolean -> if (value) 1 else 0
+                else -> throw IllegalArgumentException("Cannot convert $value of type ${value?.javaClass?.simpleName} to Int")
+            }
+        }
+
+        fun safeToFloat(value: Any?): Float {
+            return when (value) {
+                is Number -> value.toFloat()
+                is String -> value.toFloatOrNull()
+                    ?: throw IllegalArgumentException("Cannot convert string '$value' to Float")
+                else -> throw IllegalArgumentException("Cannot convert $value of type ${value?.javaClass?.simpleName} to Float")
+            }
+        }
+
+        fun safeToDouble(value: Any?): Double {
+            return when (value) {
+                is Number -> value.toDouble()
+                is String -> value.toDoubleOrNull()
+                    ?: throw IllegalArgumentException("Cannot convert string '$value' to Double")
+                else -> throw IllegalArgumentException("Cannot convert $value of type ${value?.javaClass?.simpleName} to Double")
+            }
+        }
+
+        fun safeToBoolean(value: Any?): Boolean {
+            return when (value) {
+                is Boolean -> value
+                is Number -> value.toInt() != 0
+                is String -> when {
+                    value.equals("true", ignoreCase = true) -> true
+                    value.equals("false", ignoreCase = true) -> false
+                    value == "1" -> true
+                    value == "0" -> false
+                    else -> throw IllegalArgumentException("Cannot convert string '$value' to Boolean")
+                }
+                else -> throw IllegalArgumentException("Cannot convert $value of type ${value?.javaClass?.simpleName} to Boolean")
+            }
+        }
+
+        fun safeToString(value: Any?): String {
+            return when (value) {
+                null -> ""
+                is String -> value
+                else -> value.toString()
+            }
+        }
+
+        fun safeToStringSet(value: Any?): Set<String> {
+            return when (value) {
+                is JSONArray -> {
+                    val set = mutableSetOf<String>()
+                    for (i in 0 until value.length()) {
+                        val item = value.opt(i)
+                        if (item != null && item != JSONObject.NULL) {
+                            set.add(item.toString())
+                        }
+                    }
+                    set
+                }
+                is Collection<*> -> value.mapNotNull { it?.toString() }.toSet()
+                is String -> setOf(value)
+                else -> throw IllegalArgumentException("Cannot convert $value to Set<String>")
+            }
+        }
     }
 
     // Dictation Flow
@@ -382,36 +558,40 @@ class PreferencesManager(private val context: Context) {
             obj.put("key", key.name)
             when (value) {
                 is Boolean -> {
-                    obj.put("type", "BOOLEAN")
+                    obj.put("type", "boolean")
                     obj.put("value", value)
                 }
                 is Int -> {
-                    obj.put("type", "INT")
+                    obj.put("type", "int")
                     obj.put("value", value)
                 }
                 is Long -> {
-                    obj.put("type", "LONG")
+                    obj.put("type", "long")
                     obj.put("value", value)
                 }
                 is Float -> {
-                    obj.put("type", "FLOAT")
+                    obj.put("type", "float")
                     obj.put("value", value.toDouble())
                 }
                 is Double -> {
-                    obj.put("type", "DOUBLE")
+                    obj.put("type", "double")
                     obj.put("value", value)
                 }
                 is String -> {
-                    obj.put("type", "STRING")
+                    obj.put("type", "string")
                     obj.put("value", value)
                 }
                 is Set<*> -> {
-                    obj.put("type", "STRING_SET")
+                    obj.put("type", "stringSet")
                     val arr = JSONArray()
                     for (s in value) {
                         if (s is String) arr.put(s)
                     }
                     obj.put("value", arr)
+                }
+                else -> {
+                    obj.put("type", "string")
+                    obj.put("value", value?.toString() ?: "")
                 }
             }
             prefsArray.put(obj)
@@ -420,74 +600,279 @@ class PreferencesManager(private val context: Context) {
         val root = JSONObject()
         root.put("preferences", prefsArray)
 
-        val syncObj = JSONObject()
+        val syncArray = JSONArray()
         for ((key, value) in syncPrefs.all) {
+            val obj = JSONObject()
+            obj.put("key", key)
             when (value) {
-                is Boolean -> syncObj.put(key, value)
-                is Int -> syncObj.put(key, value)
-                is Long -> syncObj.put(key, value)
-                is Float -> syncObj.put(key, value.toDouble())
-                is String -> syncObj.put(key, value)
+                is Boolean -> {
+                    obj.put("type", "boolean")
+                    obj.put("value", value)
+                }
+                is Int -> {
+                    obj.put("type", "int")
+                    obj.put("value", value)
+                }
+                is Long -> {
+                    obj.put("type", "long")
+                    obj.put("value", value)
+                }
+                is Float -> {
+                    obj.put("type", "float")
+                    obj.put("value", value.toDouble())
+                }
+                is Double -> {
+                    obj.put("type", "double")
+                    obj.put("value", value)
+                }
+                is String -> {
+                    obj.put("type", "string")
+                    obj.put("value", value)
+                }
                 is Set<*> -> {
+                    obj.put("type", "stringSet")
                     val arr = JSONArray()
-                    for (s in value) if (s is String) arr.put(s)
-                    syncObj.put(key, arr)
+                    for (s in value) {
+                        if (s is String) arr.put(s)
+                    }
+                    obj.put("value", arr)
+                }
+                else -> {
+                    obj.put("type", "string")
+                    obj.put("value", value?.toString() ?: "")
                 }
             }
+            syncArray.put(obj)
         }
-        root.put("syncPrefs", syncObj)
+        root.put("syncPrefs", syncArray)
         return root
     }
 
-    suspend fun restoreAllPreferencesFromBackup(root: JSONObject) {
-        val prefsArray = root.optJSONArray("preferences") ?: JSONArray()
-        context.dataStore.edit { preferences ->
-            preferences.clear()
+    suspend fun restoreAllPreferencesFromBackup(root: JSONObject): Int {
+        var skippedCount = 0
+
+        // Parse DataStore entries (supports array, object, or root)
+        val dataStoreEntries = mutableListOf<SettingRawEntry>()
+        val prefsArray = root.optJSONArray("preferences")
+        if (prefsArray != null) {
             for (i in 0 until prefsArray.length()) {
-                val item = prefsArray.getJSONObject(i)
-                val keyName = item.getString("key")
-                val type = item.getString("type")
-                when (type) {
-                    "BOOLEAN" -> preferences[booleanPreferencesKey(keyName)] = item.getBoolean("value")
-                    "INT" -> preferences[intPreferencesKey(keyName)] = item.getInt("value")
-                    "LONG" -> preferences[longPreferencesKey(keyName)] = item.getLong("value")
-                    "FLOAT" -> preferences[floatPreferencesKey(keyName)] = item.getDouble("value").toFloat()
-                    "STRING" -> preferences[stringPreferencesKey(keyName)] = item.getString("value")
-                    "STRING_SET" -> {
-                        val arr = item.getJSONArray("value")
-                        val set = mutableSetOf<String>()
-                        for (j in 0 until arr.length()) {
-                            set.add(arr.getString(j))
-                        }
-                        preferences[stringSetPreferencesKey(keyName)] = set
+                val item = prefsArray.optJSONObject(i) ?: continue
+                val key = item.optString("key")
+                val type = if (item.has("type") && !item.isNull("type")) item.optString("type") else null
+                val value = item.opt("value")
+                if (key.isNotBlank()) {
+                    dataStoreEntries.add(SettingRawEntry(key, type, value))
+                }
+            }
+        } else {
+            val prefsObj = root.optJSONObject("preferences")
+            if (prefsObj != null) {
+                val keys = prefsObj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val raw = prefsObj.opt(key)
+                    if (raw is JSONObject && (raw.has("value") || raw.has("type"))) {
+                        val type = if (raw.has("type") && !raw.isNull("type")) raw.optString("type") else null
+                        val value = raw.opt("value")
+                        dataStoreEntries.add(SettingRawEntry(key, type, value))
+                    } else {
+                        dataStoreEntries.add(SettingRawEntry(key, null, raw))
                     }
                 }
             }
         }
 
-        val syncObj = root.optJSONObject("syncPrefs")
-        val editor = syncPrefs.edit().clear()
-        if (syncObj != null) {
-            val keys = syncObj.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                val value = syncObj.get(key)
-                when (value) {
-                    is Boolean -> editor.putBoolean(key, value)
-                    is Int -> editor.putInt(key, value)
-                    is Long -> editor.putLong(key, value)
-                    is Double -> editor.putFloat(key, value.toFloat())
-                    is String -> editor.putString(key, value)
-                    is JSONArray -> {
-                        val set = mutableSetOf<String>()
-                        for (j in 0 until value.length()) {
-                            set.add(value.getString(j))
-                        }
-                        editor.putStringSet(key, set)
-                    }
+        context.dataStore.edit { preferences ->
+            preferences.clear()
+            for (entry in dataStoreEntries) {
+                try {
+                    restoreSingleDataStorePreference(preferences, entry)
+                } catch (_: Exception) {
+                    skippedCount++
                 }
             }
         }
+
+        // Parse syncPrefs entries (supports array or legacy object)
+        val syncEntries = mutableListOf<SettingRawEntry>()
+        val syncRaw = root.opt("syncPrefs")
+        if (syncRaw is JSONArray) {
+            for (i in 0 until syncRaw.length()) {
+                val item = syncRaw.optJSONObject(i) ?: continue
+                val key = item.optString("key")
+                val type = if (item.has("type") && !item.isNull("type")) item.optString("type") else null
+                val value = item.opt("value")
+                if (key.isNotBlank()) {
+                    syncEntries.add(SettingRawEntry(key, type, value))
+                }
+            }
+        } else if (syncRaw is JSONObject) {
+            val keys = syncRaw.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val raw = syncRaw.opt(key)
+                if (raw is JSONObject && (raw.has("value") || raw.has("type"))) {
+                    val type = if (raw.has("type") && !raw.isNull("type")) raw.optString("type") else null
+                    val value = raw.opt("value")
+                    syncEntries.add(SettingRawEntry(key, type, value))
+                } else {
+                    syncEntries.add(SettingRawEntry(key, null, raw))
+                }
+            }
+        }
+
+        val editor = syncPrefs.edit().clear()
+        for (entry in syncEntries) {
+            try {
+                restoreSingleSyncPreference(editor, entry)
+            } catch (_: Exception) {
+                skippedCount++
+            }
+        }
         editor.apply()
+
+        if (skippedCount > 0) {
+            try {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        context,
+                        "Restored with $skippedCount skipped setting(s)",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } catch (_: Throwable) {
+                // Ignore if in test or non-Looper environment
+            }
+        }
+
+        return skippedCount
+    }
+
+    private fun restoreSingleDataStorePreference(
+        preferences: MutablePreferences,
+        entry: SettingRawEntry
+    ) {
+        val keyName = entry.key
+        val rawValue = entry.value
+        if (rawValue == null || rawValue == JSONObject.NULL) {
+            return
+        }
+
+        val targetType: PrefType = resolvePrefType(keyName, entry.type, rawValue)
+
+        when (targetType) {
+            PrefType.BOOLEAN -> {
+                preferences[booleanPreferencesKey(keyName)] = safeToBoolean(rawValue)
+            }
+            PrefType.INT -> {
+                preferences[intPreferencesKey(keyName)] = safeToInt(rawValue)
+            }
+            PrefType.LONG -> {
+                preferences[longPreferencesKey(keyName)] = safeToLong(rawValue)
+            }
+            PrefType.FLOAT -> {
+                preferences[floatPreferencesKey(keyName)] = safeToFloat(rawValue)
+            }
+            PrefType.DOUBLE -> {
+                preferences[doublePreferencesKey(keyName)] = safeToDouble(rawValue)
+            }
+            PrefType.STRING -> {
+                preferences[stringPreferencesKey(keyName)] = safeToString(rawValue)
+            }
+            PrefType.STRING_SET -> {
+                preferences[stringSetPreferencesKey(keyName)] = safeToStringSet(rawValue)
+            }
+        }
+    }
+
+    private fun resolvePrefType(keyName: String, explicitType: String?, rawValue: Any): PrefType {
+        if (!explicitType.isNullOrBlank()) {
+            when (explicitType.lowercase()) {
+                "boolean" -> return PrefType.BOOLEAN
+                "int", "integer" -> return PrefType.INT
+                "long" -> return PrefType.LONG
+                "float" -> return PrefType.FLOAT
+                "double" -> return PrefType.DOUBLE
+                "string" -> return PrefType.STRING
+                "stringset", "string_set" -> return PrefType.STRING_SET
+            }
+        }
+
+        // Fallback: look up in KNOWN_PREF_TYPES
+        KNOWN_PREF_TYPES[keyName]?.let { return it }
+
+        // Fallback: infer from rawValue
+        return when (rawValue) {
+            is Boolean -> PrefType.BOOLEAN
+            is String -> PrefType.STRING
+            is JSONArray -> PrefType.STRING_SET
+            is Set<*> -> PrefType.STRING_SET
+            is Float, is Double -> PrefType.FLOAT
+            is Number -> {
+                val num = (rawValue as Number).toLong()
+                if (num > Int.MAX_VALUE || num < Int.MIN_VALUE ||
+                    keyName.contains("id", ignoreCase = true) ||
+                    keyName.contains("time", ignoreCase = true)
+                ) {
+                    PrefType.LONG
+                } else {
+                    PrefType.INT
+                }
+            }
+            else -> PrefType.STRING
+        }
+    }
+
+    private fun restoreSingleSyncPreference(
+        editor: android.content.SharedPreferences.Editor,
+        entry: SettingRawEntry
+    ) {
+        val keyName = entry.key
+        val rawValue = entry.value
+        if (rawValue == null || rawValue == JSONObject.NULL) {
+            return
+        }
+
+        val targetType: PrefType = if (!entry.type.isNullOrBlank()) {
+            when (entry.type.lowercase()) {
+                "boolean" -> PrefType.BOOLEAN
+                "int", "integer" -> PrefType.INT
+                "long" -> PrefType.LONG
+                "float" -> PrefType.FLOAT
+                "double" -> PrefType.DOUBLE
+                "string" -> PrefType.STRING
+                "stringset", "string_set" -> PrefType.STRING_SET
+                else -> KNOWN_SYNC_PREF_TYPES[keyName] ?: KNOWN_PREF_TYPES[keyName] ?: PrefType.STRING
+            }
+        } else {
+            KNOWN_SYNC_PREF_TYPES[keyName] ?: KNOWN_PREF_TYPES[keyName] ?: when (rawValue) {
+                is Boolean -> PrefType.BOOLEAN
+                is String -> PrefType.STRING
+                is JSONArray -> PrefType.STRING_SET
+                is Set<*> -> PrefType.STRING_SET
+                is Float, is Double -> PrefType.FLOAT
+                is Number -> {
+                    val num = (rawValue as Number).toLong()
+                    if (num > Int.MAX_VALUE || num < Int.MIN_VALUE ||
+                        keyName.contains("id", ignoreCase = true) ||
+                        keyName.contains("time", ignoreCase = true)
+                    ) {
+                        PrefType.LONG
+                    } else {
+                        PrefType.INT
+                    }
+                }
+                else -> PrefType.STRING
+            }
+        }
+
+        when (targetType) {
+            PrefType.BOOLEAN -> editor.putBoolean(keyName, safeToBoolean(rawValue))
+            PrefType.INT -> editor.putInt(keyName, safeToInt(rawValue))
+            PrefType.LONG -> editor.putLong(keyName, safeToLong(rawValue))
+            PrefType.FLOAT, PrefType.DOUBLE -> editor.putFloat(keyName, safeToFloat(rawValue))
+            PrefType.STRING -> editor.putString(keyName, safeToString(rawValue))
+            PrefType.STRING_SET -> editor.putStringSet(keyName, safeToStringSet(rawValue))
+        }
     }
 }
