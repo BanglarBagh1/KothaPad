@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -30,12 +31,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -55,12 +58,14 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -77,12 +82,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -106,6 +113,8 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import com.example.data.model.DictationMode
 import com.example.data.model.DictationState
 import com.example.ui.dialogs.EditKeyDialog
@@ -277,14 +286,17 @@ fun EditorScreen(
         }
     }
 
-    // Keep text field focused so cursor is always visualized when not in reading mode
-    LaunchedEffect(currentNote?.id, isReadingMode) {
+    // Request focus on editor when note is opened/loaded initially (never automatically on exiting reading mode)
+    LaunchedEffect(currentNote?.id) {
         if (!isReadingMode) {
             focusRequester.requestFocus()
-        } else {
-            keyboardController?.hide()
-            focusManager.clearFocus(force = true)
         }
+    }
+
+    // When entering or exiting reading mode, ensure focus is explicitly cleared and soft keyboard is hidden
+    LaunchedEffect(isReadingMode) {
+        keyboardController?.hide()
+        focusManager.clearFocus(force = true)
     }
 
     // Immersive mode: hide navigation bars when in Reading Mode, restore on exit or pause/dispose
@@ -512,9 +524,49 @@ fun EditorScreen(
                     )
             ) {
                 val viewportMaxHeight = maxHeight
+                val bottomSpacerHeight = remember(viewportMaxHeight) {
+                    (viewportMaxHeight * 0.65f).coerceAtLeast(200.dp)
+                }
                 val scrollState = rememberScrollState()
                 var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
                 var textFieldCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+                var isTextFieldFocused by remember { mutableStateOf(false) }
+
+                var savedReadingScrollPosition by remember { mutableStateOf<Int?>(null) }
+                var shouldPreserveReadingScroll by remember { mutableStateOf(false) }
+
+                // Continuously track the scroll position while the user is reading in Reading Mode
+                LaunchedEffect(isReadingMode, scrollState.value) {
+                    if (isReadingMode) {
+                        savedReadingScrollPosition = scrollState.value
+                        shouldPreserveReadingScroll = true
+                    }
+                }
+
+                // When switching back from Reading Mode to Normal Editing Mode,
+                // restore and preserve the exact scroll position from Reading Mode.
+                LaunchedEffect(isReadingMode) {
+                    if (!isReadingMode && shouldPreserveReadingScroll && savedReadingScrollPosition != null) {
+                        val target = savedReadingScrollPosition!!
+                        snapshotFlow { scrollState.maxValue }
+                            .filter { it > 0 }
+                            .first()
+                        scrollState.scrollTo(target.coerceIn(0, scrollState.maxValue))
+                    }
+                }
+
+                // Clear scroll preservation only when user explicitly focuses the text field to edit
+                LaunchedEffect(isTextFieldFocused) {
+                    if (isTextFieldFocused) {
+                        shouldPreserveReadingScroll = false
+                    }
+                }
+
+                // Reset scroll preservation on note change
+                LaunchedEffect(currentNote?.id) {
+                    shouldPreserveReadingScroll = false
+                    savedReadingScrollPosition = null
+                }
 
                 val fontFam = remember(fontFamilyOption, customFontPath) {
                     getFontFamilyByOption(fontFamilyOption, customFontPath)
@@ -528,16 +580,19 @@ fun EditorScreen(
                 }
 
                 // Smooth, continuous auto-scroll while typing:
-                // Keeps the active cursor line approximately in the vertical middle of the visible editing area
-                // between the keyboard and the top toolbar, leaving comfortable space below it.
+                // Only scrolls when the text field is actively focused by the user!
                 LaunchedEffect(
                     textFieldValue.text,
                     textFieldValue.selection,
                     textLayoutResult,
                     viewportMaxHeight,
                     isImeVisible,
-                    builtInKeyboardVisible
+                    builtInKeyboardVisible,
+                    isTextFieldFocused
                 ) {
+                    if (!isTextFieldFocused) return@LaunchedEffect
+                    if (isReadingMode) return@LaunchedEffect
+                    if (shouldPreserveReadingScroll) return@LaunchedEffect
                     if (scrollState.isScrollInProgress) return@LaunchedEffect
                     val layout = textLayoutResult ?: return@LaunchedEffect
                     val tfCoords = textFieldCoordinates ?: return@LaunchedEffect
@@ -585,7 +640,7 @@ fun EditorScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
-                        .padding(horizontal = marginDp.dp, vertical = if (isReadingMode) 20.dp else 12.dp)
+                        .padding(horizontal = marginDp.dp, vertical = 12.dp)
                         .then(
                             if (maxWidthDp > 0) Modifier.widthIn(max = maxWidthDp.dp).align(Alignment.TopCenter)
                             else Modifier
@@ -612,7 +667,7 @@ fun EditorScreen(
                                 )
                             )
                         }
-                        Spacer(modifier = Modifier.height(96.dp))
+                        Spacer(modifier = Modifier.height(bottomSpacerHeight))
                     } else {
                         val defaultKeyboardController = LocalSoftwareKeyboardController.current
                         val customKeyboardController = remember(userWantsBuiltIn, defaultKeyboardController) {
@@ -658,6 +713,9 @@ fun EditorScreen(
                                             .defaultMinSize(minHeight = 240.dp)
                                             .onGloballyPositioned { coords ->
                                                 textFieldCoordinates = coords
+                                            }
+                                            .onFocusChanged { focusState ->
+                                                isTextFieldFocused = focusState.isFocused
                                             }
                                             .focusRequester(focusRequester)
                                             .testTag("editor_text_input"),
@@ -728,30 +786,38 @@ fun EditorScreen(
                 }
 
                 if (isReadingMode) {
-                    // ONE small semi-transparent floating "exit reading mode" button positioned at the BOTTOM-RIGHT corner
+                    // Exit Reading Mode button: horizontal midpoint, slightly above the bottom edge
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
+                            .align(Alignment.BottomCenter)
                             .windowInsetsPadding(WindowInsets.navigationBars)
-                            .padding(16.dp)
+                            .padding(bottom = 24.dp)
                     ) {
-                        FilledIconButton(
-                            onClick = {
-                                viewModel.setReadingMode(false)
-                            },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .testTag("exit_reading_mode_button"),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
-                            )
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                            ),
+                            shadowElevation = 4.dp,
+                            modifier = Modifier.size(44.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                                contentDescription = "Exit Reading Mode",
-                                modifier = Modifier.size(18.dp)
-                            )
+                            IconButton(
+                                onClick = {
+                                    viewModel.setReadingMode(false)
+                                },
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .testTag("exit_reading_mode_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                                    contentDescription = "Exit Reading Mode",
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 } else {
