@@ -180,10 +180,7 @@ KothaPad is crafted following modern Android development best practices and Clea
 git clone https://github.com/your-username/KothaPad.git
 cd KothaPad
 
-# Self-healing workspace setup (restores keystore & environment if needed)
-./setup_workspace.sh
-
-# Build the Debug APK (automatically places KothaPad.apk in root directory)
+# Build the Debug APK (Gradle automatically restores debug.keystore and .env if needed)
 ./gradlew assembleDebug
 
 # Run unit tests and Robolectric test suite
