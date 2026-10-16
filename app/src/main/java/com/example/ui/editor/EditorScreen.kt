@@ -281,8 +281,10 @@ fun EditorScreen(
             keyboardController?.hide()
             focusManager.clearFocus(force = true)
         } else {
-            // Restore editor focus when Note Manager closes
-            focusRequester.requestFocus()
+            // Restore editor focus when Note Manager closes only if not in reading mode
+            if (!isReadingMode) {
+                focusRequester.requestFocus()
+            }
         }
     }
 
@@ -299,15 +301,18 @@ fun EditorScreen(
         focusManager.clearFocus(force = true)
     }
 
-    // Immersive mode: hide navigation bars when in Reading Mode, restore on exit or pause/dispose
-    DisposableEffect(isReadingMode) {
+    // Immersive mode: hide navigation bars when in Reading Mode (and Note Manager not open), restore on exit or pause/dispose
+    DisposableEffect(isReadingMode, isNoteManagerOpen) {
         val activity = context as? Activity
         val window = activity?.window
-        if (window != null && isReadingMode) {
+        if (window != null && isReadingMode && !isNoteManagerOpen) {
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
             insetsController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             insetsController.hide(WindowInsetsCompat.Type.navigationBars())
+        } else if (window != null) {
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            insetsController.show(WindowInsetsCompat.Type.navigationBars())
         }
         onDispose {
             if (window != null) {
@@ -362,21 +367,19 @@ fun EditorScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            // Performing existing gesture by swiping from left to right on screen launches Note Manager!
-            .pointerInput(isNoteManagerOpen, isReadingMode) {
-                if (!isReadingMode) {
-                    detectHorizontalDragGestures { change, dragAmount ->
-                        if (dragAmount > 35f && !isNoteManagerOpen) {
-                            change.consume()
-                            keyboardController?.hide()
-                            focusManager.clearFocus(force = true)
-                            viewModel.isNoteManagerOpen.value = true
-                        } else if (dragAmount < -35f && !isNoteManagerOpen) {
-                            change.consume()
-                            keyboardController?.hide()
-                            focusManager.clearFocus(force = true)
-                            viewModel.navigateTo("SETTINGS")
-                        }
+            // Performing gesture by swiping from left to right on screen launches Note Manager!
+            .pointerInput(isNoteManagerOpen) {
+                detectHorizontalDragGestures { change, dragAmount ->
+                    if (dragAmount > 35f && !isNoteManagerOpen) {
+                        change.consume()
+                        keyboardController?.hide()
+                        focusManager.clearFocus(force = true)
+                        viewModel.isNoteManagerOpen.value = true
+                    } else if (dragAmount < -35f && !isNoteManagerOpen) {
+                        change.consume()
+                        keyboardController?.hide()
+                        focusManager.clearFocus(force = true)
+                        viewModel.navigateTo("SETTINGS")
                     }
                 }
             }

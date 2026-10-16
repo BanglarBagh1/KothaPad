@@ -79,13 +79,9 @@ class MainActivity : ComponentActivity() {
             var lastBackPressTime by remember { mutableStateOf(0L) }
 
             // Centralized Back Navigation Hierarchy
-            // Priority 0: Reading mode active -> Exit reading mode first
             // Priority 1: System keyboard open -> Do NOT intercept, let default behavior dismiss keyboard
-            BackHandler(enabled = !isImeVisible || isReadingMode) {
+            BackHandler(enabled = !isImeVisible || isReadingMode || isNoteManagerOpen) {
                 when {
-                    isReadingMode -> {
-                        viewModel.setReadingMode(false)
-                    }
                     // Priority 2: Dialog, bottom sheet, popup, or key customization open -> close it
                     editingKey != null -> {
                         viewModel.editingKey.value = null
@@ -116,7 +112,12 @@ class MainActivity : ComponentActivity() {
                         viewModel.isNoteManagerOpen.value = false
                     }
 
-                    // Priority 5: Settings screen or any sub-screen open -> return to editor
+                    // Priority 5: Reading mode active -> Exit reading mode
+                    isReadingMode -> {
+                        viewModel.setReadingMode(false)
+                    }
+
+                    // Priority 6: Settings screen or any sub-screen open -> return to editor
                     currentScreen != "EDITOR" -> {
                         viewModel.navigateTo("EDITOR")
                     }

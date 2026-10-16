@@ -362,8 +362,10 @@ class EditorViewModel(
         }
     }
 
-    fun loadNote(note: Note) {
-        _isReadingMode.value = false
+    fun loadNote(note: Note, preserveReadingMode: Boolean = true) {
+        if (!preserveReadingMode) {
+            _isReadingMode.value = false
+        }
         pauseSessionTimerAndPersist()
         flushAutoSave()
         _currentNote.value = note
