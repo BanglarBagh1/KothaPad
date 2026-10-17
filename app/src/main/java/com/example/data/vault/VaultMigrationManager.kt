@@ -27,13 +27,14 @@ class VaultMigrationManager(
     private val stampDao: StampDao,
     private val spokenCommandDao: SpokenCommandDao,
     private val preferencesManager: PreferencesManager,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val vaultConfigStore: VaultConfigStore = VaultConfigStore.getInstance(context)
 ) {
 
     companion object {
-        const val KOTHAPAD_DIR = ".kothapad"
-        const val NOTES_META_FILE = "notes-meta.json"
-        const val WORKSPACE_FILE = "workspace.json"
+        const val KOTHAPAD_DIR = VaultConfigStore.CONFIG_DIR_NAME
+        const val NOTES_META_FILE = VaultConfigStore.FILE_NOTES_META
+        const val WORKSPACE_FILE = VaultConfigStore.FILE_WORKSPACE
         const val TEMPLATES_DIR = "Templates"
         const val GENERAL_DIR = "General"
     }
@@ -64,7 +65,7 @@ class VaultMigrationManager(
 
     suspend fun doesVaultHaveData(vaultDoc: DocumentFile): Boolean = withContext(Dispatchers.IO) {
         try {
-            if (vaultDoc.findFile(KOTHAPAD_DIR) != null) return@withContext true
+            if (vaultConfigStore.hasConfigDir(vaultDoc)) return@withContext true
             val children = vaultManager.listChildren(vaultDoc)
             for (child in children) {
                 val name = child.name ?: continue
@@ -151,8 +152,8 @@ class VaultMigrationManager(
             val oldStamps = stampDao.getAllStampsList()
             val customFolders = preferencesManager.customFolders.first()
 
-            val kothaDir = vaultManager.getOrCreateDirRecursive(vaultDoc, KOTHAPAD_DIR)
-                ?: throw IllegalStateException("Failed to create .kothapad folder in vault")
+            vaultConfigStore.initVault(vaultDoc)
+                ?: throw IllegalStateException("Failed to initialize .KOTHAPAD folder in vault")
 
             val templatesDir = vaultManager.getOrCreateDirRecursive(vaultDoc, TEMPLATES_DIR)
                 ?: throw IllegalStateException("Failed to create Templates folder in vault")
@@ -234,7 +235,7 @@ class VaultMigrationManager(
                 put("schemaVersion", 1)
                 put("notes", metadataObj)
             }
-            vaultManager.writeTextAtomic(kothaDir, NOTES_META_FILE, rootMeta.toString(2), "application/json")
+            vaultConfigStore.writeNotesMeta(vaultDoc, rootMeta)
 
             // 6. Write workspace.json
             onProgress("Writing workspace settings...")
@@ -249,7 +250,7 @@ class VaultMigrationManager(
                 }
                 put("expandedFolders", arr)
             }
-            vaultManager.writeTextAtomic(kothaDir, WORKSPACE_FILE, wsObj.toString(2), "application/json")
+            vaultConfigStore.writeWorkspace(vaultDoc, wsObj)
 
             // 7. Write settings.json into vault
             onProgress("Writing application settings...")

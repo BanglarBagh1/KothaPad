@@ -18,11 +18,12 @@ class KothaPadApp : Application() {
     val database by lazy { AppDatabase.getInstance(this, applicationScope) }
     val vaultManager by lazy { com.example.data.vault.VaultManager(this) }
     val preferencesManager by lazy { PreferencesManager(this) }
+    val vaultConfigStore by lazy { com.example.data.vault.VaultConfigStore.getInstance(this, applicationScope) }
     val settingsRepository by lazy {
-        com.example.data.vault.SettingsRepository(this, vaultManager, applicationScope)
+        com.example.data.vault.SettingsRepository(this, vaultManager, applicationScope, vaultConfigStore)
     }
     val vaultNoteRepository by lazy {
-        com.example.data.vault.VaultNoteRepository(this, vaultManager, preferencesManager, applicationScope)
+        com.example.data.vault.VaultNoteRepository(this, vaultManager, preferencesManager, applicationScope, vaultConfigStore)
     }
     val vaultMigrationManager by lazy {
         com.example.data.vault.VaultMigrationManager(
@@ -32,7 +33,8 @@ class KothaPadApp : Application() {
             stampDao = database.stampDao(),
             spokenCommandDao = database.spokenCommandDao(),
             preferencesManager = preferencesManager,
-            settingsRepository = settingsRepository
+            settingsRepository = settingsRepository,
+            vaultConfigStore = vaultConfigStore
         )
     }
 

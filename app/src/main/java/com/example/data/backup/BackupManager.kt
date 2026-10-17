@@ -91,8 +91,8 @@ object BackupManager {
                 val children = vaultManager.listChildren(dir)
                 for (child in children) {
                     val name = child.name ?: continue
-                    // Skip hidden folders/files other than .kothapad (e.g. .obsidian, .trash)
-                    if (name.startsWith(".") && name != ".kothapad") {
+                    // Skip hidden folders/files other than .KOTHAPAD (e.g. .obsidian, .trash)
+                    if (name.startsWith(".") && !com.example.data.vault.VaultConfigStore.isConfigDir(name)) {
                         continue
                     }
                     val relPath = if (currentRelPath.isEmpty()) name else "$currentRelPath/$name"
@@ -242,7 +242,7 @@ object BackupManager {
         }
 
         // Check if vault backup
-        val isVault = entries.keys.any { it.startsWith(".kothapad/") || (it.endsWith(".md", ignoreCase = true) && !it.equals(MANIFEST_FILE)) }
+        val isVault = entries.keys.any { it.startsWith(".kothapad/", ignoreCase = true) || it.startsWith(".KOTHAPAD/", ignoreCase = true) || (it.endsWith(".md", ignoreCase = true) && !it.equals(MANIFEST_FILE)) }
 
         val manifestBytes = entries[MANIFEST_FILE]
         val manifestObj = manifestBytes?.let {
@@ -403,7 +403,7 @@ object BackupManager {
                 val currentChildren = vaultManager.listChildren(vaultDoc)
                 for (ch in currentChildren) {
                     val name = ch.name ?: ""
-                    if (!name.startsWith(".") || name == ".kothapad") {
+                    if (!name.startsWith(".") || com.example.data.vault.VaultConfigStore.isConfigDir(name)) {
                         vaultManager.delete(ch)
                     }
                 }
@@ -424,7 +424,7 @@ object BackupManager {
             val currentChildren = vaultManager.listChildren(vaultDoc)
             for (ch in currentChildren) {
                 val name = ch.name ?: ""
-                if (!name.startsWith(".") || name == ".kothapad") {
+                if (!name.startsWith(".") || com.example.data.vault.VaultConfigStore.isConfigDir(name)) {
                     vaultManager.delete(ch)
                 }
             }
@@ -457,8 +457,9 @@ object BackupManager {
                 }
             } else {
                 // Convert legacy backup into vault files
-                val kothaDir = vaultManager.getOrCreateDirRecursive(vaultDoc, ".kothapad")
-                    ?: throw IllegalStateException("Cannot create .kothapad directory")
+                val vaultConfigStore = com.example.data.vault.VaultConfigStore.getInstance(context)
+                vaultConfigStore.initVault(vaultDoc)
+                    ?: throw IllegalStateException("Cannot create .KOTHAPAD directory")
                 val templatesDir = vaultManager.getOrCreateDirRecursive(vaultDoc, "Templates")
                     ?: throw IllegalStateException("Cannot create Templates directory")
 
@@ -497,23 +498,23 @@ object BackupManager {
                     notesRestored++
                 }
 
-                // Write .kothapad/notes-meta.json
+                // Write .KOTHAPAD/notes-meta.json
                 val rootMeta = JSONObject().apply {
                     put("schemaVersion", 1)
                     put("notes", notesMetaObj)
                 }
-                vaultManager.writeTextAtomic(kothaDir, "notes-meta.json", rootMeta.toString(2), "application/json")
+                vaultConfigStore.writeNotesMeta(vaultDoc, rootMeta)
 
-                // Write .kothapad/settings.json
-                vaultManager.writeTextAtomic(kothaDir, "settings.json", backupData.settings.toString(2), "application/json")
+                // Write .KOTHAPAD/settings.json
+                vaultConfigStore.writeSettings(vaultDoc, backupData.settings)
 
-                // Write .kothapad/workspace.json
+                // Write .KOTHAPAD/workspace.json
                 val wsObj = JSONObject().apply {
                     put("schemaVersion", 1)
                     put("lastActiveFolder", "General")
                     put("expandedFolders", JSONArray().apply { put("General"); put("Templates") })
                 }
-                vaultManager.writeTextAtomic(kothaDir, "workspace.json", wsObj.toString(2), "application/json")
+                vaultConfigStore.writeWorkspace(vaultDoc, wsObj)
             }
 
             BackupSummary(

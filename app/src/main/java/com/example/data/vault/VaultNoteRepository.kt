@@ -63,7 +63,8 @@ class VaultNoteRepository(
     private val context: Context,
     private val vaultManager: VaultManager,
     private val preferencesManager: PreferencesManager,
-    private val repositoryScope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+    private val repositoryScope: CoroutineScope = CoroutineScope(Dispatchers.IO),
+    private val vaultConfigStore: VaultConfigStore = VaultConfigStore.getInstance(context, repositoryScope)
 ) {
 
     private val mutex = Mutex()
@@ -120,9 +121,9 @@ class VaultNoteRepository(
     private var workspaceData: WorkspaceData = WorkspaceData()
 
     companion object {
-        const val KOTHAPAD_DIR = ".kothapad"
-        const val NOTES_META_FILE = "notes-meta.json"
-        const val WORKSPACE_FILE = "workspace.json"
+        const val KOTHAPAD_DIR = VaultConfigStore.CONFIG_DIR_NAME
+        const val NOTES_META_FILE = VaultConfigStore.FILE_NOTES_META
+        const val WORKSPACE_FILE = VaultConfigStore.FILE_WORKSPACE
         const val TEMPLATES_DIR = "Templates"
         const val GENERAL_DIR = "General"
         private const val META_SCHEMA_VERSION = 1
@@ -161,17 +162,20 @@ class VaultNoteRepository(
     suspend fun onVaultOpened(vaultDoc: DocumentFile) = withContext(Dispatchers.IO) {
         currentVaultDoc = vaultDoc
         cache.clear()
+        metadataMap.clear()
+        pathToIdMap.clear()
+        idToPathMap.clear()
 
-        // Ensure critical folders exist
-        val kothaDir = vaultManager.getOrCreateDirRecursive(vaultDoc, KOTHAPAD_DIR)
+        // Single source of truth: initialize vault config and cleanup duplicates
+        vaultConfigStore.initVault(vaultDoc)
+
+        // Ensure critical note content folders exist
         vaultManager.getOrCreateDirRecursive(vaultDoc, TEMPLATES_DIR)
         vaultManager.getOrCreateDirRecursive(vaultDoc, GENERAL_DIR)
 
-        // Load metadata & workspace
-        if (kothaDir != null) {
-            loadMetadata(kothaDir)
-            loadWorkspace(kothaDir)
-        }
+        // Load metadata & workspace via VaultConfigStore
+        loadMetadata(vaultDoc)
+        loadWorkspace(vaultDoc)
 
         // Start background indexing
         startVaultScan(vaultDoc)
@@ -204,11 +208,8 @@ class VaultNoteRepository(
         metadataMap.clear()
         pathToIdMap.clear()
         idToPathMap.clear()
-        val kothaDir = vaultManager.findDirRecursive(vaultDoc, KOTHAPAD_DIR)
-        if (kothaDir != null) {
-            loadMetadata(kothaDir)
-            loadWorkspace(kothaDir)
-        }
+        loadMetadata(vaultDoc)
+        loadWorkspace(vaultDoc)
         startVaultScan(vaultDoc)
     }
 
@@ -365,20 +366,9 @@ class VaultNoteRepository(
     // Metadata Persistence (.kothapad/notes-meta.json)
     // =========================================================================
 
-    private suspend fun loadMetadata(kothaDir: DocumentFile) = withContext(Dispatchers.IO) {
+    private suspend fun loadMetadata(vaultDoc: DocumentFile) = withContext(Dispatchers.IO) {
         try {
-            val children = vaultManager.listChildren(kothaDir)
-            val metaFile = children.firstOrNull {
-                it.name.equals(NOTES_META_FILE, ignoreCase = true) ||
-                it.name.equals("$NOTES_META_FILE.json", ignoreCase = true) ||
-                it.name.equals("$NOTES_META_FILE.bak", ignoreCase = true)
-            }
-            if (metaFile == null || !metaFile.exists()) return@withContext
-
-            val jsonStr = vaultManager.readText(metaFile)
-            if (jsonStr.isBlank()) return@withContext
-
-            val root = JSONObject(jsonStr)
+            val root = vaultConfigStore.readNotesMeta(vaultDoc) ?: return@withContext
             val notesObj = root.optJSONObject("notes") ?: return@withContext
 
             val keys = notesObj.keys()
@@ -407,7 +397,6 @@ class VaultNoteRepository(
 
     suspend fun saveMetadata() = withContext(Dispatchers.IO) {
         val vaultDoc = currentVaultDoc ?: return@withContext
-        val kothaDir = vaultManager.getOrCreateDirRecursive(vaultDoc, KOTHAPAD_DIR) ?: return@withContext
         try {
             val root = JSONObject()
             root.put("schemaVersion", META_SCHEMA_VERSION)
@@ -428,7 +417,7 @@ class VaultNoteRepository(
                 notesObj.put(path, obj)
             }
             root.put("notes", notesObj)
-            vaultManager.writeTextAtomic(kothaDir, NOTES_META_FILE, root.toString(2), "application/json")
+            vaultConfigStore.updateNotesMeta(vaultDoc, root)
         } catch (_: Exception) {
             // Keep going, non-blocking
         }
@@ -438,20 +427,10 @@ class VaultNoteRepository(
     // Workspace Persistence (.kothapad/workspace.json)
     // =========================================================================
 
-    private suspend fun loadWorkspace(kothaDir: DocumentFile) = withContext(Dispatchers.IO) {
+    private suspend fun loadWorkspace(vaultDoc: DocumentFile) = withContext(Dispatchers.IO) {
         try {
-            val children = vaultManager.listChildren(kothaDir)
-            val wsFile = children.firstOrNull {
-                it.name.equals(WORKSPACE_FILE, ignoreCase = true) ||
-                it.name.equals("$WORKSPACE_FILE.json", ignoreCase = true) ||
-                it.name.equals("$WORKSPACE_FILE.bak", ignoreCase = true)
-            }
-            if (wsFile == null || !wsFile.exists()) return@withContext
+            val root = vaultConfigStore.readWorkspace(vaultDoc) ?: return@withContext
 
-            val jsonStr = vaultManager.readText(wsFile)
-            if (jsonStr.isBlank()) return@withContext
-
-            val root = JSONObject(jsonStr)
             val lastNote = if (root.has("lastOpenedNoteRelPath") && !root.isNull("lastOpenedNoteRelPath")) {
                 root.optString("lastOpenedNoteRelPath")
             } else null
@@ -483,7 +462,6 @@ class VaultNoteRepository(
         expandedFolders: Set<String>? = null
     ) = withContext(Dispatchers.IO) {
         val vaultDoc = currentVaultDoc ?: return@withContext
-        val kothaDir = vaultManager.getOrCreateDirRecursive(vaultDoc, KOTHAPAD_DIR) ?: return@withContext
 
         val updatedLastNote = lastOpenedRelPath ?: workspaceData.lastOpenedNoteRelPath
         val updatedLastFolder = lastFolder ?: workspaceData.lastActiveFolder
@@ -507,7 +485,7 @@ class VaultNoteRepository(
                 arr.put(f)
             }
             root.put("expandedFolders", arr)
-            vaultManager.writeTextAtomic(kothaDir, WORKSPACE_FILE, root.toString(2), "application/json")
+            vaultConfigStore.updateWorkspace(vaultDoc, root)
         } catch (_: Exception) {
             // Non-blocking
         }

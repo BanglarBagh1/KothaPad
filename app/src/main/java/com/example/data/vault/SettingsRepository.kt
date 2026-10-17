@@ -156,108 +156,67 @@ data class AppSettings(
 class SettingsRepository(
     private val context: Context,
     private val vaultManager: VaultManager,
-    private val coroutineScope: CoroutineScope
+    private val coroutineScope: CoroutineScope,
+    private val vaultConfigStore: VaultConfigStore = VaultConfigStore.getInstance(context, coroutineScope)
 ) {
     private val _settings = MutableStateFlow(AppSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
-    private var debounceJob: Job? = null
     private var isSyncingWithDataStore = false
 
     companion object {
-        const val SETTINGS_DIR = ".kothapad"
-        const val SETTINGS_FILE_NAME = "settings.json"
+        const val SETTINGS_DIR = VaultConfigStore.CONFIG_DIR_NAME
+        const val SETTINGS_FILE_NAME = VaultConfigStore.FILE_SETTINGS
         const val SETTINGS_BAK_FILE_NAME = "settings.json.bak"
     }
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
-        val updated = transform(_settings.value)
+        if (isSyncingWithDataStore) return
+        val current = _settings.value
+        val updated = transform(current)
+        if (updated == current) return
         _settings.value = updated
-        scheduleDebouncedSave()
-    }
-
-    private fun scheduleDebouncedSave() {
-        debounceJob?.cancel()
-        debounceJob = coroutineScope.launch(Dispatchers.IO) {
-            delay(500)
-            flushSaves()
+        val vaultDoc = vaultManager.getCurrentVaultDocumentFile() ?: return
+        coroutineScope.launch(Dispatchers.IO) {
+            val json = serializeToJson(updated)
+            vaultConfigStore.updateSettings(vaultDoc, json)
         }
     }
 
     suspend fun flushSaves() = withContext(Dispatchers.IO) {
-        debounceJob?.cancel()
-        debounceJob = null
-
-        val vaultDoc = vaultManager.getCurrentVaultDocumentFile() ?: return@withContext
-        val dotKothaPad = vaultManager.createDir(vaultDoc, SETTINGS_DIR) ?: return@withContext
-        val jsonString = serializeToJson(_settings.value).toString(2)
-        vaultManager.writeTextAtomic(dotKothaPad, SETTINGS_FILE_NAME, jsonString, "application/json")
+        vaultConfigStore.flush(VaultConfigStore.FILE_SETTINGS)
     }
 
     /**
      * Loads settings from the vault:
-     * - If settings.json exists, load it and apply ALL settings.
-     * - If corrupted, fall back to settings.json.bak.
-     * - If does not exist, seed from app's current preferences and create settings.json.
+     * - Reads .KOTHAPAD/settings.json as single source of truth.
+     * - If does not exist, seed from app's current preferences and create settings.json once.
      */
     suspend fun loadVaultSettings(vaultDoc: DocumentFile, preferencesManager: PreferencesManager): AppSettings = withContext(Dispatchers.IO) {
-        val dotKothaPad = vaultManager.createDir(vaultDoc, SETTINGS_DIR)
-        val settingsFile = dotKothaPad?.findFile(SETTINGS_FILE_NAME)
-
-        var loadedSettings: AppSettings? = null
-
-        if (settingsFile != null && settingsFile.exists()) {
-            val primaryText = vaultManager.readText(settingsFile)
-            if (primaryText.isNotBlank()) {
-                try {
-                    val root = JSONObject(primaryText)
-                    loadedSettings = deserializeFromJson(root)
-                } catch (_: Exception) {
-                    // Try fallback
-                }
-            }
-
-            if (loadedSettings == null) {
-                // Try .bak
-                val bakFile = dotKothaPad.findFile(SETTINGS_BAK_FILE_NAME)
-                if (bakFile != null && bakFile.exists()) {
-                    val bakText = vaultManager.readText(bakFile)
-                    if (bakText.isNotBlank()) {
-                        try {
-                            val root = JSONObject(bakText)
-                            loadedSettings = deserializeFromJson(root)
-                        } catch (_: Exception) {}
-                    }
-                }
-            }
-        }
+        vaultConfigStore.initVault(vaultDoc)
+        val loadedJson = vaultConfigStore.readSettings(vaultDoc)
 
         val finalSettings: AppSettings
-        if (loadedSettings != null) {
-            finalSettings = loadedSettings
+        if (loadedJson != null) {
+            finalSettings = deserializeFromJson(loadedJson)
             _settings.value = finalSettings
             // Sync loaded settings to local preferences storage so everything stays consistent
             applySettingsToPreferencesManager(finalSettings, preferencesManager)
         } else {
-            // Seed from app's CURRENT settings so user loses nothing
+            // Seed from app's CURRENT settings so user loses nothing on first open
             finalSettings = seedFromPreferencesManager(preferencesManager)
             _settings.value = finalSettings
-
-            if (dotKothaPad != null) {
-                val jsonString = serializeToJson(finalSettings).toString(2)
-                vaultManager.writeTextAtomic(dotKothaPad, SETTINGS_FILE_NAME, jsonString, "application/json")
-            }
+            vaultConfigStore.writeSettings(vaultDoc, serializeToJson(finalSettings))
         }
 
         finalSettings
     }
 
     suspend fun exportCurrentPreferencesToVault(vaultDoc: DocumentFile, preferencesManager: PreferencesManager) = withContext(Dispatchers.IO) {
-        val dotKothaPad = vaultManager.getOrCreateDirRecursive(vaultDoc, SETTINGS_DIR) ?: return@withContext
+        vaultConfigStore.initVault(vaultDoc)
         val currentSettings = seedFromPreferencesManager(preferencesManager)
         _settings.value = currentSettings
-        val jsonString = serializeToJson(currentSettings).toString(2)
-        vaultManager.writeTextAtomic(dotKothaPad, SETTINGS_FILE_NAME, jsonString, "application/json")
+        vaultConfigStore.writeSettings(vaultDoc, serializeToJson(currentSettings))
     }
 
     private suspend fun seedFromPreferencesManager(pm: PreferencesManager): AppSettings = withContext(Dispatchers.IO) {
