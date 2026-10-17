@@ -104,7 +104,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -663,6 +665,15 @@ fun EditorScreen(
                                     textAlign = textAlignValue,
                                     color = MaterialTheme.colorScheme.onBackground
                                 ),
+                                onTextChange = { updatedText ->
+                                    viewModel.updateTextFieldValue(
+                                        TextFieldValue(
+                                            text = updatedText,
+                                            selection = TextRange(updatedText.length)
+                                        ),
+                                        isUserTyping = true
+                                    )
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("reading_mode_text")
@@ -857,37 +868,66 @@ fun EditorScreen(
                         }
                     }
                 } else {
-                    // Bottom Floating Cluster
-                    EditorFloatingCluster(
-                        canUndo = canUndo,
-                        canRedo = canRedo,
-                        dictationState = dictationState,
-                        dictationMode = currentDictationMode,
-                        audioLevelRms = audioLevelRms,
-                        onUndoClick = { viewModel.undo() },
-                        onRedoClick = { viewModel.redo() },
-                        onCopyClick = {
-                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            val clip = android.content.ClipData.newPlainText("KothaPad Note", textFieldValue.text)
-                            clipboard.setPrimaryClip(clip)
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Note text copied to clipboard")
-                            }
-                        },
-                        onMicClick = { viewModel.toggleDictation() },
-                        onMicLongClick = { },
-                        onModeSelect = { mode -> viewModel.setDictationMode(mode) },
-                        onPushToTalkPress = { isPressed -> viewModel.onPushToTalkPress(isPressed) },
-                        onReadingModeClick = { viewModel.setReadingMode(true) },
-                        modifier = Modifier.align(Alignment.BottomCenter),
-                        micButtonSize = micButtonSize,
-                        micButtonShape = micButtonShape,
-                        micButtonColor = micButtonColor,
-                        micButtonPosition = micButtonPosition,
-                        micButtonOffsetY = micButtonOffsetY,
-                        dictationAnimationStyle = dictationAnimationStyle,
-                        hapticsLevel = hapticsLevel
-                    )
+                    val isRecording = dictationState !is DictationState.Idle
+
+                    val isKeyboardOpen = builtInKeyboardVisible || isImeVisible
+                    val showFormatBar = markdownSettings.markdownEnabled &&
+                            markdownSettings.formatBarEnabled &&
+                            isTextFieldFocused &&
+                            isKeyboardOpen &&
+                            !isRecording
+
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (showFormatBar) {
+                            com.example.markdown.MarkdownFormatBar(
+                                enabledButtonIds = markdownSettings.formatBarButtons,
+                                onAction = { buttonId ->
+                                    val newTfv = com.example.markdown.MarkdownActions.applyActionById(buttonId, textFieldValue)
+                                    viewModel.updateTextFieldValue(newTfv, isUserTyping = true)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        // Bottom Floating Cluster
+                        EditorFloatingCluster(
+                            canUndo = canUndo,
+                            canRedo = canRedo,
+                            dictationState = dictationState,
+                            dictationMode = currentDictationMode,
+                            audioLevelRms = audioLevelRms,
+                            onUndoClick = { viewModel.undo() },
+                            onRedoClick = { viewModel.redo() },
+                            onCopyClick = {
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("KothaPad Note", textFieldValue.text)
+                                clipboard.setPrimaryClip(clip)
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Note text copied to clipboard")
+                                }
+                            },
+                            onMicClick = { viewModel.toggleDictation() },
+                            onMicLongClick = { },
+                            onModeSelect = { mode -> viewModel.setDictationMode(mode) },
+                            onPushToTalkPress = { isPressed -> viewModel.onPushToTalkPress(isPressed) },
+                            onReadingModeClick = { viewModel.setReadingMode(true) },
+                            modifier = Modifier.fillMaxWidth(),
+                            micButtonSize = micButtonSize,
+                            micButtonShape = micButtonShape,
+                            micButtonColor = micButtonColor,
+                            micButtonPosition = micButtonPosition,
+                            micButtonOffsetY = micButtonOffsetY,
+                            dictationAnimationStyle = dictationAnimationStyle,
+                            hapticsLevel = hapticsLevel
+                        )
+                    }
                 }
             }
         }

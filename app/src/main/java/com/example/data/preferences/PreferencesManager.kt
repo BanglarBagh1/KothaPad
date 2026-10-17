@@ -223,7 +223,10 @@ class PreferencesManager(private val context: Context) {
             "md_dim_syntax" to PrefType.BOOLEAN,
             "md_heading_scale" to PrefType.FLOAT,
             "md_code_monospace" to PrefType.BOOLEAN,
-            "md_auto_continue_lists" to PrefType.BOOLEAN
+            "md_auto_continue_lists" to PrefType.BOOLEAN,
+            "md_format_bar_enabled" to PrefType.BOOLEAN,
+            "md_format_bar_buttons" to PrefType.STRING,
+            "md_tappable_checkboxes" to PrefType.BOOLEAN
         )
 
         val KNOWN_SYNC_PREF_TYPES: Map<String, PrefType> = mapOf(

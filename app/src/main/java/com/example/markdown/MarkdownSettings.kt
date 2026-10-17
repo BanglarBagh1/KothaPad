@@ -3,6 +3,7 @@ package com.example.markdown
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.example.data.preferences.PreferencesManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -10,7 +11,7 @@ import kotlinx.coroutines.flow.map
 /**
  * Single source of truth for Markdown configuration.
  *
- * Phase 2 and Phase 3 will ADD new fields here with defaults. Never remove or rename existing fields.
+ * Phase 2 and Phase 3 ADD new fields here with defaults. Never remove or rename existing fields.
  */
 data class MarkdownSettings(
     val markdownEnabled: Boolean = true,
@@ -32,9 +33,29 @@ data class MarkdownSettings(
     val dimSyntaxSymbols: Boolean = true,
     val headingSizeScale: Float = 1.0f,
     val codeFontMonospace: Boolean = true,
-    val autoContinueLists: Boolean = true
+    val autoContinueLists: Boolean = true,
+    // Phase 3 additions:
+    val formatBarEnabled: Boolean = true,
+    val formatBarButtons: List<String> = DEFAULT_FORMAT_BAR_BUTTONS,
+    val tappableCheckboxes: Boolean = true
 ) {
     companion object {
+        val DEFAULT_FORMAT_BAR_BUTTONS = listOf(
+            "heading",
+            "bold",
+            "italic",
+            "strikethrough",
+            "highlight",
+            "bullet_list",
+            "numbered_list",
+            "checkbox",
+            "quote",
+            "inline_code",
+            "code_block",
+            "link",
+            "horizontal_rule"
+        )
+
         val KEY_MD_ENABLED = booleanPreferencesKey("md_enabled")
         val KEY_MD_HEADINGS = booleanPreferencesKey("md_headings")
         val KEY_MD_BOLD_ITALIC = booleanPreferencesKey("md_bold_italic")
@@ -56,6 +77,11 @@ data class MarkdownSettings(
         val KEY_MD_HEADING_SCALE = floatPreferencesKey("md_heading_scale")
         val KEY_MD_CODE_MONOSPACE = booleanPreferencesKey("md_code_monospace")
         val KEY_MD_AUTO_CONTINUE_LISTS = booleanPreferencesKey("md_auto_continue_lists")
+
+        // Phase 3 Keys
+        val KEY_MD_FORMAT_BAR_ENABLED = booleanPreferencesKey("md_format_bar_enabled")
+        val KEY_MD_FORMAT_BAR_BUTTONS = stringPreferencesKey("md_format_bar_buttons")
+        val KEY_MD_TAPPABLE_CHECKBOXES = booleanPreferencesKey("md_tappable_checkboxes")
     }
 }
 
@@ -81,7 +107,13 @@ class MarkdownSettingsRepository(private val preferencesManager: PreferencesMana
             dimSyntaxSymbols = prefs[MarkdownSettings.KEY_MD_DIM_SYNTAX] ?: true,
             headingSizeScale = prefs[MarkdownSettings.KEY_MD_HEADING_SCALE] ?: 1.0f,
             codeFontMonospace = prefs[MarkdownSettings.KEY_MD_CODE_MONOSPACE] ?: true,
-            autoContinueLists = prefs[MarkdownSettings.KEY_MD_AUTO_CONTINUE_LISTS] ?: true
+            autoContinueLists = prefs[MarkdownSettings.KEY_MD_AUTO_CONTINUE_LISTS] ?: true,
+            formatBarEnabled = prefs[MarkdownSettings.KEY_MD_FORMAT_BAR_ENABLED] ?: true,
+            formatBarButtons = prefs[MarkdownSettings.KEY_MD_FORMAT_BAR_BUTTONS]?.let { str ->
+                val list = str.split(",").filter { it.isNotBlank() }
+                if (list.isNotEmpty()) list else MarkdownSettings.DEFAULT_FORMAT_BAR_BUTTONS
+            } ?: MarkdownSettings.DEFAULT_FORMAT_BAR_BUTTONS,
+            tappableCheckboxes = prefs[MarkdownSettings.KEY_MD_TAPPABLE_CHECKBOXES] ?: true
         )
     }
 
@@ -106,7 +138,13 @@ class MarkdownSettingsRepository(private val preferencesManager: PreferencesMana
                 dimSyntaxSymbols = prefs[MarkdownSettings.KEY_MD_DIM_SYNTAX] ?: true,
                 headingSizeScale = prefs[MarkdownSettings.KEY_MD_HEADING_SCALE] ?: 1.0f,
                 codeFontMonospace = prefs[MarkdownSettings.KEY_MD_CODE_MONOSPACE] ?: true,
-                autoContinueLists = prefs[MarkdownSettings.KEY_MD_AUTO_CONTINUE_LISTS] ?: true
+                autoContinueLists = prefs[MarkdownSettings.KEY_MD_AUTO_CONTINUE_LISTS] ?: true,
+                formatBarEnabled = prefs[MarkdownSettings.KEY_MD_FORMAT_BAR_ENABLED] ?: true,
+                formatBarButtons = prefs[MarkdownSettings.KEY_MD_FORMAT_BAR_BUTTONS]?.let { str ->
+                    val list = str.split(",").filter { it.isNotBlank() }
+                    if (list.isNotEmpty()) list else MarkdownSettings.DEFAULT_FORMAT_BAR_BUTTONS
+                } ?: MarkdownSettings.DEFAULT_FORMAT_BAR_BUTTONS,
+                tappableCheckboxes = prefs[MarkdownSettings.KEY_MD_TAPPABLE_CHECKBOXES] ?: true
             )
             val updated = transform(current)
             prefs[MarkdownSettings.KEY_MD_ENABLED] = updated.markdownEnabled
@@ -128,6 +166,9 @@ class MarkdownSettingsRepository(private val preferencesManager: PreferencesMana
             prefs[MarkdownSettings.KEY_MD_HEADING_SCALE] = updated.headingSizeScale
             prefs[MarkdownSettings.KEY_MD_CODE_MONOSPACE] = updated.codeFontMonospace
             prefs[MarkdownSettings.KEY_MD_AUTO_CONTINUE_LISTS] = updated.autoContinueLists
+            prefs[MarkdownSettings.KEY_MD_FORMAT_BAR_ENABLED] = updated.formatBarEnabled
+            prefs[MarkdownSettings.KEY_MD_FORMAT_BAR_BUTTONS] = updated.formatBarButtons.joinToString(",")
+            prefs[MarkdownSettings.KEY_MD_TAPPABLE_CHECKBOXES] = updated.tappableCheckboxes
         }
     }
 
@@ -152,6 +193,11 @@ class MarkdownSettingsRepository(private val preferencesManager: PreferencesMana
     suspend fun setHeadingSizeScale(scale: Float) = updateSettings { it.copy(headingSizeScale = scale) }
     suspend fun setCodeFontMonospace(enabled: Boolean) = updateSettings { it.copy(codeFontMonospace = enabled) }
     suspend fun setAutoContinueLists(enabled: Boolean) = updateSettings { it.copy(autoContinueLists = enabled) }
+
+    // Phase 3 setters
+    suspend fun setFormatBarEnabled(enabled: Boolean) = updateSettings { it.copy(formatBarEnabled = enabled) }
+    suspend fun setFormatBarButtons(buttons: List<String>) = updateSettings { it.copy(formatBarButtons = buttons) }
+    suspend fun setTappableCheckboxes(enabled: Boolean) = updateSettings { it.copy(tappableCheckboxes = enabled) }
 
     suspend fun resetToDefaults() {
         updateSettings { MarkdownSettings() }

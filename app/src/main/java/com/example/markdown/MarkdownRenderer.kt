@@ -2,6 +2,7 @@ package com.example.markdown
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,7 +51,8 @@ fun MarkdownRenderer(
     text: String,
     settings: MarkdownSettings,
     baseTextStyle: TextStyle,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onTextChange: ((String) -> Unit)? = null
 ) {
     if (text.isEmpty()) {
         SelectionContainer {
@@ -227,24 +229,52 @@ fun MarkdownRenderer(
                     }
 
                     is MarkdownBlock.TaskListBlock -> {
+                        val isTappable = settings.tappableCheckboxes && onTextChange != null
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             block.items.forEach { item ->
+                                val toggleAction: () -> Unit = {
+                                    if (item.lineIndex >= 0) {
+                                        val allLines = text.lines().toMutableList()
+                                        if (item.lineIndex in allLines.indices) {
+                                            val oldLine = allLines[item.lineIndex]
+                                            val newLine = if (item.isChecked) {
+                                                oldLine.replaceFirst(Regex("\\[[xX]\\]"), "[ ]")
+                                            } else {
+                                                oldLine.replaceFirst("[ ]", "[x]")
+                                            }
+                                            allLines[item.lineIndex] = newLine
+                                            onTextChange?.invoke(allLines.joinToString("\n"))
+                                        }
+                                    }
+                                }
+
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(start = (item.indent * 18).dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = if (item.isChecked) Icons.Filled.CheckBox else Icons.Outlined.CheckBoxOutlineBlank,
-                                        contentDescription = if (item.isChecked) "Completed" else "Incomplete",
-                                        tint = if (item.isChecked) SaffronPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size((18 * fontScale).dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size((28 * fontScale).dp.coerceAtLeast(32.dp))
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .then(
+                                                if (isTappable) Modifier.clickable(onClick = toggleAction)
+                                                else Modifier
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (item.isChecked) Icons.Filled.CheckBox else Icons.Outlined.CheckBoxOutlineBlank,
+                                            contentDescription = if (item.isChecked) "Completed. Tap to mark incomplete" else "Incomplete. Tap to mark complete",
+                                            tint = if (item.isChecked) SaffronPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size((18 * fontScale).dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     val annotated = remember(item.content, settings) {
                                         renderInlineMarkdown(
                                             input = item.content,
@@ -266,7 +296,13 @@ fun MarkdownRenderer(
                                             textDecoration = if (item.isChecked && settings.strikethrough) {
                                                 TextDecoration.LineThrough
                                             } else null
-                                        )
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .then(
+                                                if (isTappable) Modifier.clickable(onClick = toggleAction)
+                                                else Modifier
+                                            )
                                     )
                                 }
                             }
@@ -459,7 +495,7 @@ sealed interface MarkdownBlock {
     data class Paragraph(val content: String, val rawText: String) : MarkdownBlock
 }
 
-data class TaskItem(val indent: Int, val isChecked: Boolean, val content: String)
+data class TaskItem(val indent: Int, val isChecked: Boolean, val content: String, val lineIndex: Int = -1)
 data class ListItem(val indent: Int, val bullet: String, val isOrdered: Boolean, val content: String)
 
 fun parseMarkdownBlocks(text: String, settings: MarkdownSettings): List<MarkdownBlock> {
@@ -545,12 +581,13 @@ fun parseMarkdownBlocks(text: String, settings: MarkdownSettings): List<Markdown
         if (settings.taskLists && isTaskListItem(currentLine)) {
             val taskItems = mutableListOf<TaskItem>()
             while (i < lines.size && isTaskListItem(lines[i])) {
-                val match = Regex("^(\\s*)([-*+])\\s+\\[([ xX])\\]\\s*(.*)$").find(lines[i])
+                val lineIdx = i
+                val match = Regex("^(\\s*)([-*+])\\s+\\[([ xX])\\]\\s*(.*)$").find(lines[lineIdx])
                 if (match != null) {
                     val indent = match.groupValues[1].length / 2
                     val isChecked = match.groupValues[3].lowercase() == "x"
                     val content = match.groupValues[4]
-                    taskItems.add(TaskItem(indent, isChecked, content))
+                    taskItems.add(TaskItem(indent, isChecked, content, lineIndex = lineIdx))
                 }
                 i++
             }

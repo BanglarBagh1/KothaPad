@@ -1,6 +1,7 @@
 package com.example.markdown
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,10 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -390,6 +395,15 @@ fun MarkdownSettingsScreen(
                         onCheckedChange = { chk -> onUpdateSettings { it.copy(taskLists = chk) } },
                         testTag = "toggle_task_lists"
                     )
+                    HorizontalDivider(color = AmoledBorder.copy(alpha = 0.3f))
+                    MarkdownToggleRow(
+                        title = "Tappable Checkboxes in Reading Mode",
+                        subtitle = "Tap checkboxes directly in Reading Mode to toggle complete state and save note",
+                        checked = settings.tappableCheckboxes,
+                        enabled = settings.markdownEnabled && settings.taskLists,
+                        onCheckedChange = { chk -> onUpdateSettings { it.copy(tappableCheckboxes = chk) } },
+                        testTag = "toggle_tappable_checkboxes"
+                    )
                 }
             }
 
@@ -413,6 +427,136 @@ fun MarkdownSettingsScreen(
                         onCheckedChange = { chk -> onUpdateSettings { it.copy(tables = chk) } },
                         testTag = "toggle_tables"
                     )
+                }
+            }
+
+            // Group: Format Bar (Phase 3)
+            item {
+                MarkdownGroupCard(title = "Format Bar") {
+                    MarkdownToggleRow(
+                        title = "Quick Format Bar",
+                        subtitle = "Toolbar of Markdown syntax buttons above keyboard while editing",
+                        checked = settings.formatBarEnabled,
+                        enabled = settings.markdownEnabled,
+                        onCheckedChange = { chk -> onUpdateSettings { it.copy(formatBarEnabled = chk) } },
+                        testTag = "toggle_format_bar"
+                    )
+                    HorizontalDivider(color = AmoledBorder.copy(alpha = 0.3f))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Format Buttons",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (settings.markdownEnabled && settings.formatBarEnabled) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                }
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(
+                                    onClick = {
+                                        onUpdateSettings { it.copy(formatBarButtons = MarkdownSettings.DEFAULT_FORMAT_BAR_BUTTONS) }
+                                    },
+                                    enabled = settings.markdownEnabled && settings.formatBarEnabled
+                                ) {
+                                    Text("All", fontSize = 12.sp)
+                                }
+                                TextButton(
+                                    onClick = {
+                                        onUpdateSettings { it.copy(formatBarButtons = emptyList()) }
+                                    },
+                                    enabled = settings.markdownEnabled && settings.formatBarEnabled
+                                ) {
+                                    Text("None", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Choose which syntax buttons appear in the quick format bar",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (settings.markdownEnabled && settings.formatBarEnabled) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val allButtons = remember { getFormatBarButtonDefinitions() }
+                        allButtons.forEach { btn ->
+                            val isChecked = settings.formatBarButtons.contains(btn.id)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable(
+                                        enabled = settings.markdownEnabled && settings.formatBarEnabled,
+                                        onClick = {
+                                            val newButtons = if (isChecked) {
+                                                settings.formatBarButtons - btn.id
+                                            } else {
+                                                MarkdownSettings.DEFAULT_FORMAT_BAR_BUTTONS.filter { id ->
+                                                    id == btn.id || settings.formatBarButtons.contains(id)
+                                                }
+                                            }
+                                            onUpdateSettings { it.copy(formatBarButtons = newButtons) }
+                                        }
+                                    )
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isChecked,
+                                    onCheckedChange = { checked ->
+                                        val newButtons = if (checked) {
+                                            MarkdownSettings.DEFAULT_FORMAT_BAR_BUTTONS.filter { id ->
+                                                id == btn.id || settings.formatBarButtons.contains(id)
+                                            }
+                                        } else {
+                                            settings.formatBarButtons - btn.id
+                                        }
+                                        onUpdateSettings { it.copy(formatBarButtons = newButtons) }
+                                    },
+                                    enabled = settings.markdownEnabled && settings.formatBarEnabled,
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = SaffronPrimary
+                                    ),
+                                    modifier = Modifier.testTag("format_bar_check_${btn.id}")
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = btn.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (settings.markdownEnabled && settings.formatBarEnabled) {
+                                        MaterialTheme.colorScheme.onSurface
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = btn.contentDescription,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (settings.markdownEnabled && settings.formatBarEnabled) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
