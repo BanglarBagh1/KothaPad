@@ -307,6 +307,7 @@ class EditorViewModel(
     // Auto-save debounce job
     private var autoSaveJob: Job? = null
     private var lastDeletedNote: Note? = null
+    private var isCurrentNoteAutoCreated: Boolean = false
 
     init {
         // Collect supervisor finalized text
@@ -373,18 +374,20 @@ class EditorViewModel(
                     vaultNoteRepository.syncTemplatesFromVault(allStamps.value) { stamp ->
                         stampRepository.insert(stamp)
                     }
-                    val notes = vaultNoteRepository.allNotes.value
+                    val activeNotesList = vaultNoteRepository.activeNotes.value
                     var targetNote: Note? = null
-                    if (ws.lastOpenedNoteRelPath != null) {
-                        targetNote = notes.firstOrNull { vaultNoteRepository.getRelPathForNote(it) == ws.lastOpenedNoteRelPath }
+                    if (!ws.lastOpenedNoteRelPath.isNullOrBlank()) {
+                        targetNote = activeNotesList.firstOrNull { note ->
+                            !note.isDeleted && vaultNoteRepository.getRelPathForNote(note).equals(ws.lastOpenedNoteRelPath, ignoreCase = true)
+                        }
                     }
-                    if (targetNote == null) {
-                        targetNote = vaultNoteRepository.getLatestActiveNote() ?: vaultNoteRepository.getLatestNote()
+                    if (targetNote == null && activeNotesList.isNotEmpty()) {
+                        targetNote = vaultNoteRepository.getLatestActiveNote() ?: activeNotesList.firstOrNull()
                     }
                     withContext(Dispatchers.Main) {
                         if (targetNote != null) {
                             loadNote(targetNote)
-                        } else {
+                        } else if (activeNotesList.isEmpty() && vaultNoteRepository.allNotes.value.isEmpty()) {
                             createNewNote()
                         }
                     }
@@ -424,13 +427,19 @@ class EditorViewModel(
 
         // Keep session timing synchronized with note manager & screens
         viewModelScope.launch {
-            isNoteManagerOpen.collect {
+            isNoteManagerOpen.collect { isOpen ->
+                if (isOpen) {
+                    cleanupEmptyNoteIfAbandoned(_currentNote.value)
+                }
                 checkAndResumeSessionTimer()
             }
         }
 
         viewModelScope.launch {
-            _currentScreen.collect {
+            _currentScreen.collect { screen ->
+                if (screen != "EDITOR") {
+                    cleanupEmptyNoteIfAbandoned(_currentNote.value)
+                }
                 checkAndResumeSessionTimer()
             }
         }
@@ -440,13 +449,15 @@ class EditorViewModel(
             allNotes.collect { notes ->
                 val current = _currentNote.value
                 if (current != null && notes.isNotEmpty()) {
-                    val exists = notes.any { it.id == current.id }
+                    val currentRel = vaultNoteRepository.getRelPathForNote(current)
+                    val exists = notes.any { it.id == current.id || vaultNoteRepository.getRelPathForNote(it).equals(currentRel, ignoreCase = true) }
                     if (!exists) {
-                        val next = vaultNoteRepository.getLatestActiveNote() ?: vaultNoteRepository.getLatestNote()
+                        val activeNotesList = vaultNoteRepository.activeNotes.value
+                        val next = vaultNoteRepository.getLatestActiveNote() ?: activeNotesList.firstOrNull()
                         withContext(Dispatchers.Main) {
                             if (next != null) {
                                 loadNote(next)
-                            } else {
+                            } else if (activeNotesList.isEmpty() && notes.isEmpty()) {
                                 createNewNote()
                             }
                         }
@@ -460,11 +471,53 @@ class EditorViewModel(
     private var isAppInForeground: Boolean = true
     private var lastPeriodicDbFlushTime: Long = 0L
 
+    private suspend fun cleanupEmptyNoteIfAbandoned(noteToLeave: Note?) {
+        if (noteToLeave == null) return
+        val currentText = _textFieldValue.value.text.trim()
+        val isCompletelyEmpty = noteToLeave.content.trim().isEmpty() && currentText.isEmpty()
+        val isUntitledOrAuto = isCurrentNoteAutoCreated ||
+                noteToLeave.title.startsWith("Untitled", ignoreCase = true) ||
+                noteToLeave.title.matches(Regex("\\d{4}-\\d{2}-\\d{2}( \\d+)?")) ||
+                noteToLeave.title.matches(Regex("\\d+( \\d+)?"))
+
+        if (isCompletelyEmpty && isUntitledOrAuto && !noteToLeave.isDeleted && !noteToLeave.isArchived) {
+            autoSaveJob?.cancel()
+            noteRepository.delete(noteToLeave)
+            vaultNoteRepository.saveWorkspace(clearLastOpenedNote = true)
+            vaultNoteRepository.vaultConfigStore.flush()
+            if (_currentNote.value?.id == noteToLeave.id) {
+                withContext(Dispatchers.Main) {
+                    _currentNote.value = null
+                    _textFieldValue.value = TextFieldValue("")
+                }
+            }
+        }
+    }
+
     fun onAppForegroundStateChanged(inForeground: Boolean) {
         isAppInForeground = inForeground
         if (!inForeground) {
-            pauseSessionTimerAndPersist()
-            flushAutoSave()
+            val current = _currentNote.value
+            val currentText = _textFieldValue.value.text.trim()
+            val isCompletelyEmpty = (current?.content?.trim()?.isEmpty() == true) && currentText.isEmpty()
+            val isUntitledOrAuto = isCurrentNoteAutoCreated ||
+                    (current != null && (
+                        current.title.startsWith("Untitled", ignoreCase = true) ||
+                        current.title.matches(Regex("\\d{4}-\\d{2}-\\d{2}( \\d+)?")) ||
+                        current.title.matches(Regex("\\d+( \\d+)?"))
+                    ))
+            if (current != null && isCompletelyEmpty && isUntitledOrAuto && !current.isDeleted && !current.isArchived) {
+                autoSaveJob?.cancel()
+                (getApplication<Application>() as KothaPadApp).applicationScope.launch(Dispatchers.IO + NonCancellable) {
+                    noteRepository.delete(current)
+                    vaultNoteRepository.saveWorkspace(clearLastOpenedNote = true)
+                    vaultNoteRepository.vaultConfigStore.flush()
+                }
+                _currentNote.value = null
+            } else {
+                pauseSessionTimerAndPersist()
+                flushAutoSave()
+            }
         } else {
             checkAndResumeSessionTimer()
             vaultManager.refreshAccessibility()
@@ -489,14 +542,21 @@ class EditorViewModel(
             _isReadingMode.value = false
         }
         val current = _currentNote.value
-        if (current != null && current.id != note.id && !current.isDeleted && !current.isArchived) {
-            pauseSessionTimerAndPersist()
-            flushAutoSave()
+        if (current != null && current.id != note.id) {
+            val noteToCleanup = current
+            viewModelScope.launch(Dispatchers.IO) {
+                cleanupEmptyNoteIfAbandoned(noteToCleanup)
+            }
+            if (!current.isDeleted && !current.isArchived) {
+                pauseSessionTimerAndPersist()
+                flushAutoSave()
+            }
         } else {
             sessionDurationJob?.cancel()
             sessionDurationJob = null
             autoSaveJob?.cancel()
         }
+        isCurrentNoteAutoCreated = false
         vaultNoteRepository.currentlyOpenNoteId = note.id
         _currentNote.value = note
         _textFieldValue.value = TextFieldValue(
@@ -565,6 +625,9 @@ class EditorViewModel(
         if (isUserTyping && newValue.text != _textFieldValue.value.text) {
             pushUndoState(_textFieldValue.value)
         }
+        if (newValue.text.trim().isNotEmpty()) {
+            isCurrentNoteAutoCreated = false
+        }
         _textFieldValue.value = newValue
         triggerAutoSave(newValue.text)
     }
@@ -592,6 +655,7 @@ class EditorViewModel(
         (getApplication<Application>() as KothaPadApp).applicationScope.launch(Dispatchers.IO + NonCancellable) {
             try {
                 settingsRepository.flushSaves()
+                vaultNoteRepository.vaultConfigStore.flush()
                 val toSave = if (note.content != currentText) {
                     note.copy(content = currentText, updatedAt = System.currentTimeMillis())
                 } else {
@@ -638,13 +702,17 @@ class EditorViewModel(
                         vaultNoteRepository.syncTemplatesFromVault(allStamps.value) { stamp ->
                             stampRepository.insert(stamp)
                         }
-                        val notes = vaultNoteRepository.allNotes.value
-                        val target = if (ws.lastOpenedNoteRelPath != null) {
-                            notes.firstOrNull { vaultNoteRepository.getRelPathForNote(it) == ws.lastOpenedNoteRelPath }
+                        val activeNotesList = vaultNoteRepository.activeNotes.value
+                        val target = if (!ws.lastOpenedNoteRelPath.isNullOrBlank()) {
+                            activeNotesList.firstOrNull { !it.isDeleted && vaultNoteRepository.getRelPathForNote(it).equals(ws.lastOpenedNoteRelPath, ignoreCase = true) }
                         } else null
-                        val noteToLoad = target ?: vaultNoteRepository.getLatestActiveNote() ?: vaultNoteRepository.getLatestNote()
+                        val noteToLoad = target ?: vaultNoteRepository.getLatestActiveNote() ?: activeNotesList.firstOrNull()
                         withContext(Dispatchers.Main) {
-                            if (noteToLoad != null) loadNote(noteToLoad) else createNewNote()
+                            if (noteToLoad != null) {
+                                loadNote(noteToLoad)
+                            } else if (activeNotesList.isEmpty() && vaultNoteRepository.allNotes.value.isEmpty()) {
+                                createNewNote()
+                            }
                         }
                         checkAndPromptMigration(vaultDoc)
                     }
@@ -677,9 +745,14 @@ class EditorViewModel(
                         if (ws.expandedFolders.isNotEmpty()) {
                             preferencesManager.setExpandedFolders(ws.expandedFolders)
                         }
-                        val noteToLoad = vaultNoteRepository.getLatestActiveNote() ?: vaultNoteRepository.getLatestNote()
+                        val activeNotesList = vaultNoteRepository.activeNotes.value
+                        val noteToLoad = vaultNoteRepository.getLatestActiveNote() ?: activeNotesList.firstOrNull()
                         withContext(Dispatchers.Main) {
-                            if (noteToLoad != null) loadNote(noteToLoad) else createNewNote()
+                            if (noteToLoad != null) {
+                                loadNote(noteToLoad)
+                            } else if (activeNotesList.isEmpty() && vaultNoteRepository.allNotes.value.isEmpty()) {
+                                createNewNote()
+                            }
                         }
                         checkAndPromptMigration(vaultDoc)
                     }
@@ -716,13 +789,17 @@ class EditorViewModel(
                         vaultNoteRepository.syncTemplatesFromVault(allStamps.value) { stamp ->
                             stampRepository.insert(stamp)
                         }
-                        val notes = vaultNoteRepository.allNotes.value
-                        val target = if (ws.lastOpenedNoteRelPath != null) {
-                            notes.firstOrNull { vaultNoteRepository.getRelPathForNote(it) == ws.lastOpenedNoteRelPath }
+                        val activeNotesList = vaultNoteRepository.activeNotes.value
+                        val target = if (!ws.lastOpenedNoteRelPath.isNullOrBlank()) {
+                            activeNotesList.firstOrNull { !it.isDeleted && vaultNoteRepository.getRelPathForNote(it).equals(ws.lastOpenedNoteRelPath, ignoreCase = true) }
                         } else null
-                        val noteToLoad = target ?: vaultNoteRepository.getLatestActiveNote() ?: vaultNoteRepository.getLatestNote()
+                        val noteToLoad = target ?: vaultNoteRepository.getLatestActiveNote() ?: activeNotesList.firstOrNull()
                         withContext(Dispatchers.Main) {
-                            if (noteToLoad != null) loadNote(noteToLoad) else createNewNote()
+                            if (noteToLoad != null) {
+                                loadNote(noteToLoad)
+                            } else if (activeNotesList.isEmpty() && vaultNoteRepository.allNotes.value.isEmpty()) {
+                                createNewNote()
+                            }
                         }
                         checkAndPromptMigration(vaultDoc)
                     }
@@ -1450,6 +1527,7 @@ class EditorViewModel(
                 if (inserted != null) {
                     if (afterAction == "OPEN_EDITOR") {
                         loadNote(inserted)
+                        isCurrentNoteAutoCreated = true
                         isNoteManagerOpen.value = false
                         if (startRecording) {
                             startDictation()
@@ -2252,21 +2330,19 @@ class EditorViewModel(
             settingsRepository.loadVaultSettings(vaultDoc, preferencesManager)
             vaultNoteRepository.onVaultOpened(vaultDoc)
         }
-        val lastId = preferencesManager.getLastOpenedNoteIdSync()
+        val activeNotesList = vaultNoteRepository.activeNotes.value
+        val ws = vaultNoteRepository.getWorkspaceData()
         var noteToLoad: Note? = null
-        if (lastId > 0) {
-            val found = noteRepository.getNoteOnce(lastId)
-            if (found != null && !found.isDeleted) {
-                noteToLoad = found
-            }
+        if (!ws.lastOpenedNoteRelPath.isNullOrBlank()) {
+            noteToLoad = activeNotesList.firstOrNull { !it.isDeleted && vaultNoteRepository.getRelPathForNote(it).equals(ws.lastOpenedNoteRelPath, ignoreCase = true) }
         }
-        if (noteToLoad == null) {
-            noteToLoad = noteRepository.getLatestActiveNote() ?: noteRepository.getLatestNote()
+        if (noteToLoad == null && activeNotesList.isNotEmpty()) {
+            noteToLoad = vaultNoteRepository.getLatestActiveNote() ?: activeNotesList.firstOrNull()
         }
         withContext(Dispatchers.Main) {
             if (noteToLoad != null) {
                 loadNote(noteToLoad)
-            } else {
+            } else if (activeNotesList.isEmpty() && vaultNoteRepository.allNotes.value.isEmpty()) {
                 createNewNote()
             }
         }

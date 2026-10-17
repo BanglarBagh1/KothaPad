@@ -39,6 +39,7 @@ class VaultConfigStore(
 
     private var activeVaultUri: String? = null
     private var activeConfigDir: DocumentFile? = null
+    private var activeVaultDoc: DocumentFile? = null
 
     companion object {
         const val CONFIG_DIR_NAME = ".KOTHAPAD"
@@ -80,7 +81,9 @@ class VaultConfigStore(
             while (keys.hasNext()) {
                 val key = keys.next()
                 val srcVal = source.get(key)
-                if (target.has(key)) {
+                if (srcVal == JSONObject.NULL) {
+                    target.remove(key)
+                } else if (target.has(key)) {
                     val tgtVal = target.get(key)
                     if (tgtVal is JSONObject && srcVal is JSONObject) {
                         deepMerge(tgtVal, srcVal)
@@ -111,6 +114,9 @@ class VaultConfigStore(
                 lastWrittenContent.clear()
                 activeVaultUri = rootUri
                 activeConfigDir = null
+                activeVaultDoc = vaultRoot
+            } else {
+                activeVaultDoc = vaultRoot
             }
 
             val configDir = resolveConfigDirInternal(vaultRoot) ?: return@withContext null
@@ -347,7 +353,7 @@ class VaultConfigStore(
 
     suspend fun flush(fileName: String? = null) = mutex.withLock {
         withContext(Dispatchers.IO) {
-            val rootDoc = activeConfigDir?.parentFile ?: return@withContext
+            val rootDoc = activeVaultDoc ?: activeConfigDir?.parentFile ?: return@withContext
             if (fileName != null) {
                 debounceJobs[fileName]?.cancel()
                 debounceJobs.remove(fileName)
