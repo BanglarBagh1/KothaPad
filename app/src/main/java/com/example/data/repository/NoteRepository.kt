@@ -2,43 +2,75 @@ package com.example.data.repository
 
 import com.example.data.db.NoteDao
 import com.example.data.model.Note
+import com.example.data.vault.VaultNoteRepository
 import kotlinx.coroutines.flow.Flow
 
-class NoteRepository(private val noteDao: NoteDao) {
-    val allNotes: Flow<List<Note>> = noteDao.getAllNotes()
-    val activeNotes: Flow<List<Note>> = noteDao.getActiveNotes()
-    val archivedNotes: Flow<List<Note>> = noteDao.getArchivedNotes()
-    val trashedNotes: Flow<List<Note>> = noteDao.getTrashedNotes()
+class NoteRepository(
+    private val noteDao: NoteDao,
+    var vaultNoteRepository: VaultNoteRepository? = null
+) {
+    val allNotes: Flow<List<Note>>
+        get() = vaultNoteRepository?.allNotes ?: noteDao.getAllNotes()
 
-    fun getNote(id: Long): Flow<Note?> = noteDao.getNoteById(id)
+    val activeNotes: Flow<List<Note>>
+        get() = vaultNoteRepository?.activeNotes ?: noteDao.getActiveNotes()
 
-    suspend fun getNoteOnce(id: Long): Note? = noteDao.getNoteByIdOnce(id)
+    val archivedNotes: Flow<List<Note>>
+        get() = vaultNoteRepository?.archivedNotes ?: noteDao.getArchivedNotes()
 
-    suspend fun getLatestActiveNote(): Note? = noteDao.getLatestActiveNote()
+    val trashedNotes: Flow<List<Note>>
+        get() = vaultNoteRepository?.trashedNotes ?: noteDao.getTrashedNotes()
 
-    suspend fun getLatestNote(): Note? = noteDao.getLatestNote()
+    fun getNote(id: Long): Flow<Note?> =
+        vaultNoteRepository?.getNote(id) ?: noteDao.getNoteById(id)
 
-    fun searchNotes(query: String): Flow<List<Note>> = noteDao.searchNotes(query)
+    suspend fun getNoteOnce(id: Long): Note? =
+        vaultNoteRepository?.getNoteOnce(id) ?: noteDao.getNoteByIdOnce(id)
 
-    suspend fun insert(note: Note): Long = noteDao.insert(note)
+    suspend fun getLatestActiveNote(): Note? =
+        vaultNoteRepository?.getLatestActiveNote() ?: noteDao.getLatestActiveNote()
 
-    suspend fun insertAll(notes: List<Note>): List<Long> = noteDao.insertAll(notes)
+    suspend fun getLatestNote(): Note? =
+        vaultNoteRepository?.getLatestNote() ?: noteDao.getLatestNote()
 
-    suspend fun update(note: Note) = noteDao.update(note)
+    fun searchNotes(query: String): Flow<List<Note>> =
+        vaultNoteRepository?.searchNotes(query) ?: noteDao.searchNotes(query)
 
-    suspend fun updateAll(notes: List<Note>) = noteDao.updateAll(notes)
+    suspend fun insert(note: Note): Long =
+        vaultNoteRepository?.insert(note) ?: noteDao.insert(note)
 
-    suspend fun delete(note: Note) = noteDao.delete(note)
+    suspend fun insertAll(notes: List<Note>): List<Long> =
+        vaultNoteRepository?.insertAll(notes) ?: noteDao.insertAll(notes)
 
-    suspend fun deleteAll(notes: List<Note>) = noteDao.deleteAll(notes)
+    suspend fun update(note: Note) {
+        vaultNoteRepository?.update(note) ?: noteDao.update(note)
+    }
 
-    suspend fun deleteById(id: Long) = noteDao.deleteById(id)
+    suspend fun updateAll(notes: List<Note>) {
+        vaultNoteRepository?.updateAll(notes) ?: noteDao.updateAll(notes)
+    }
 
-    suspend fun getAllNotesList(): List<Note> = noteDao.getAllNotesList()
+    suspend fun delete(note: Note) {
+        vaultNoteRepository?.delete(note) ?: noteDao.delete(note)
+    }
 
-    suspend fun deleteAllNotes(): Int = noteDao.deleteAllNotes()
+    suspend fun deleteAll(notes: List<Note>) {
+        vaultNoteRepository?.deleteAll(notes) ?: noteDao.deleteAll(notes)
+    }
 
-    suspend fun autoCleanTrash(olderThanTimestamp: Long): Int = noteDao.autoCleanTrash(olderThanTimestamp)
+    suspend fun deleteById(id: Long) {
+        vaultNoteRepository?.deleteById(id) ?: noteDao.deleteById(id)
+    }
 
-    suspend fun emptyTrash(): Int = noteDao.emptyTrash()
+    suspend fun getAllNotesList(): List<Note> =
+        vaultNoteRepository?.getAllNotesList() ?: noteDao.getAllNotesList()
+
+    suspend fun deleteAllNotes(): Int =
+        vaultNoteRepository?.deleteAllNotes() ?: noteDao.deleteAllNotes()
+
+    suspend fun autoCleanTrash(olderThanTimestamp: Long): Int =
+        vaultNoteRepository?.autoCleanTrash(olderThanTimestamp) ?: noteDao.autoCleanTrash(olderThanTimestamp)
+
+    suspend fun emptyTrash(): Int =
+        vaultNoteRepository?.emptyTrash() ?: noteDao.emptyTrash()
 }

@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 class EditorViewModel(
@@ -52,12 +53,18 @@ class EditorViewModel(
     private val preferencesManager: PreferencesManager,
     private val speechSupervisor: SpeechSupervisor,
     val vaultManager: com.example.data.vault.VaultManager = (application as KothaPadApp).vaultManager,
-    val settingsRepository: com.example.data.vault.SettingsRepository = (application as KothaPadApp).settingsRepository
+    val settingsRepository: com.example.data.vault.SettingsRepository = (application as KothaPadApp).settingsRepository,
+    val vaultNoteRepository: com.example.data.vault.VaultNoteRepository = (application as KothaPadApp).vaultNoteRepository
 ) : AndroidViewModel(application) {
 
     // Vault State
     val vaultState: StateFlow<com.example.data.vault.VaultState> = vaultManager.vaultState
     val showFinishSetupDialog = MutableStateFlow(false)
+
+    // Vault Scanner State
+    val isVaultScanning: StateFlow<Boolean> = vaultNoteRepository.isScanning
+    val vaultScanProgress: StateFlow<String?> = vaultNoteRepository.scanProgress
+    val vaultSaveError: StateFlow<String?> = vaultNoteRepository.lastSaveError
 
     // Notes Data
     val allNotes: StateFlow<List<Note>> = noteRepository.allNotes
@@ -341,7 +348,7 @@ class EditorViewModel(
             }
         }
 
-        // Load initial vault settings if already selected and accessible
+        // Load initial vault settings and notes if already selected and accessible
         viewModelScope.launch {
             if (vaultManager.vaultState.value.isAccessible) {
                 val doc = vaultManager.getCurrentVaultDocumentFile()
@@ -349,6 +356,30 @@ class EditorViewModel(
                     val loaded = settingsRepository.loadVaultSettings(doc, preferencesManager)
                     _isReadingMode.value = loaded.readingModeEnabled
                     checkMicrophonePermission()
+                    vaultNoteRepository.onVaultOpened(doc)
+                    val ws = vaultNoteRepository.getWorkspaceData()
+                    if (ws.lastActiveFolder.isNotBlank()) {
+                        preferencesManager.setLastActiveFolder(ws.lastActiveFolder)
+                    }
+                    if (ws.expandedFolders.isNotEmpty()) {
+                        preferencesManager.setExpandedFolders(ws.expandedFolders)
+                    }
+                    vaultNoteRepository.syncTemplatesFromVault(allStamps.value) { stamp ->
+                        stampRepository.insert(stamp)
+                    }
+                    val notes = vaultNoteRepository.allNotes.value
+                    var targetNote: Note? = null
+                    if (ws.lastOpenedNoteRelPath != null) {
+                        targetNote = notes.firstOrNull { vaultNoteRepository.getRelPathForNote(it) == ws.lastOpenedNoteRelPath }
+                    }
+                    if (targetNote == null) {
+                        targetNote = vaultNoteRepository.getLatestActiveNote() ?: vaultNoteRepository.getLatestNote()
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (targetNote != null) {
+                            loadNote(targetNote)
+                        }
+                    }
                 }
             }
         }
@@ -375,8 +406,12 @@ class EditorViewModel(
         isAppInForeground = inForeground
         if (!inForeground) {
             pauseSessionTimerAndPersist()
+            flushAutoSave()
         } else {
             checkAndResumeSessionTimer()
+            viewModelScope.launch(Dispatchers.IO) {
+                vaultNoteRepository.rescanIfNeeded()
+            }
         }
     }
 
@@ -412,10 +447,14 @@ class EditorViewModel(
             }
         }
 
-        // Persist last opened note ID
+        // Persist last opened note ID and workspace relative path
         preferencesManager.setLastOpenedNoteIdSync(note.id)
         viewModelScope.launch {
             preferencesManager.setLastOpenedNoteId(note.id)
+            vaultNoteRepository.saveWorkspace(
+                lastOpenedRelPath = vaultNoteRepository.getRelPathForNote(note),
+                lastFolder = note.folder
+            )
         }
 
         checkAndResumeSessionTimer()
@@ -461,7 +500,7 @@ class EditorViewModel(
     fun triggerAutoSave(newContent: String) {
         autoSaveJob?.cancel()
         autoSaveJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(500)
+            delay(800) // ~800 ms after typing stops
             val note = _currentNote.value ?: return@launch
             val updated = note.copy(
                 content = newContent,
@@ -473,18 +512,24 @@ class EditorViewModel(
     }
 
     fun flushAutoSave() {
-        viewModelScope.launch(Dispatchers.IO) {
-            settingsRepository.flushSaves()
-        }
+        autoSaveJob?.cancel()
         val note = _currentNote.value ?: return
         val currentText = _textFieldValue.value.text
-        viewModelScope.launch(Dispatchers.IO) {
-            val toSave = if (note.content != currentText) {
-                note.copy(content = currentText, updatedAt = System.currentTimeMillis())
-            } else {
-                note
+        (getApplication<Application>() as KothaPadApp).applicationScope.launch(Dispatchers.IO + NonCancellable) {
+            try {
+                settingsRepository.flushSaves()
+                val toSave = if (note.content != currentText) {
+                    note.copy(content = currentText, updatedAt = System.currentTimeMillis())
+                } else {
+                    note
+                }
+                noteRepository.update(toSave)
+                withContext(Dispatchers.Main) {
+                    _currentNote.value = toSave
+                }
+            } catch (_: Exception) {
+                // Non-blocking error
             }
-            noteRepository.update(toSave)
         }
     }
 
@@ -502,6 +547,25 @@ class EditorViewModel(
                         val loaded = settingsRepository.loadVaultSettings(vaultDoc, preferencesManager)
                         _isReadingMode.value = loaded.readingModeEnabled
                         checkMicrophonePermission()
+                        vaultNoteRepository.onVaultOpened(vaultDoc)
+                        val ws = vaultNoteRepository.getWorkspaceData()
+                        if (ws.lastActiveFolder.isNotBlank()) {
+                            preferencesManager.setLastActiveFolder(ws.lastActiveFolder)
+                        }
+                        if (ws.expandedFolders.isNotEmpty()) {
+                            preferencesManager.setExpandedFolders(ws.expandedFolders)
+                        }
+                        vaultNoteRepository.syncTemplatesFromVault(allStamps.value) { stamp ->
+                            stampRepository.insert(stamp)
+                        }
+                        val notes = vaultNoteRepository.allNotes.value
+                        val target = if (ws.lastOpenedNoteRelPath != null) {
+                            notes.firstOrNull { vaultNoteRepository.getRelPathForNote(it) == ws.lastOpenedNoteRelPath }
+                        } else null
+                        val noteToLoad = target ?: vaultNoteRepository.getLatestActiveNote() ?: vaultNoteRepository.getLatestNote()
+                        withContext(Dispatchers.Main) {
+                            if (noteToLoad != null) loadNote(noteToLoad) else createNewNote()
+                        }
                     }
                     onResult?.invoke(true, null)
                 },
@@ -522,6 +586,18 @@ class EditorViewModel(
                         val loaded = settingsRepository.loadVaultSettings(vaultDoc, preferencesManager)
                         _isReadingMode.value = loaded.readingModeEnabled
                         checkMicrophonePermission()
+                        vaultNoteRepository.onVaultOpened(vaultDoc)
+                        val ws = vaultNoteRepository.getWorkspaceData()
+                        if (ws.lastActiveFolder.isNotBlank()) {
+                            preferencesManager.setLastActiveFolder(ws.lastActiveFolder)
+                        }
+                        if (ws.expandedFolders.isNotEmpty()) {
+                            preferencesManager.setExpandedFolders(ws.expandedFolders)
+                        }
+                        val noteToLoad = vaultNoteRepository.getLatestActiveNote() ?: vaultNoteRepository.getLatestNote()
+                        withContext(Dispatchers.Main) {
+                            if (noteToLoad != null) loadNote(noteToLoad) else createNewNote()
+                        }
                     }
                     onResult?.invoke(true, null)
                 },
@@ -534,6 +610,7 @@ class EditorViewModel(
 
     fun switchVault(vaultInfo: com.example.data.vault.VaultInfo, onResult: ((Boolean, String?) -> Unit)? = null) {
         viewModelScope.launch {
+            flushAutoSave()
             settingsRepository.flushSaves()
             val uri = Uri.parse(vaultInfo.uriString)
             val result = vaultManager.openVaultFromUri(uri, vaultInfo.name)
@@ -544,6 +621,25 @@ class EditorViewModel(
                         val loaded = settingsRepository.loadVaultSettings(vaultDoc, preferencesManager)
                         _isReadingMode.value = loaded.readingModeEnabled
                         checkMicrophonePermission()
+                        vaultNoteRepository.onVaultOpened(vaultDoc)
+                        val ws = vaultNoteRepository.getWorkspaceData()
+                        if (ws.lastActiveFolder.isNotBlank()) {
+                            preferencesManager.setLastActiveFolder(ws.lastActiveFolder)
+                        }
+                        if (ws.expandedFolders.isNotEmpty()) {
+                            preferencesManager.setExpandedFolders(ws.expandedFolders)
+                        }
+                        vaultNoteRepository.syncTemplatesFromVault(allStamps.value) { stamp ->
+                            stampRepository.insert(stamp)
+                        }
+                        val notes = vaultNoteRepository.allNotes.value
+                        val target = if (ws.lastOpenedNoteRelPath != null) {
+                            notes.firstOrNull { vaultNoteRepository.getRelPathForNote(it) == ws.lastOpenedNoteRelPath }
+                        } else null
+                        val noteToLoad = target ?: vaultNoteRepository.getLatestActiveNote() ?: vaultNoteRepository.getLatestNote()
+                        withContext(Dispatchers.Main) {
+                            if (noteToLoad != null) loadNote(noteToLoad) else createNewNote()
+                        }
                     }
                     onResult?.invoke(true, null)
                 },
@@ -556,6 +652,7 @@ class EditorViewModel(
 
     fun closeCurrentVault() {
         viewModelScope.launch {
+            flushAutoSave()
             settingsRepository.flushSaves()
             vaultManager.closeCurrentVault()
         }
@@ -836,17 +933,20 @@ class EditorViewModel(
 
     fun saveTemplate(template: Stamp) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (template.id == 0L) {
+            val id = if (template.id == 0L) {
                 stampRepository.insert(template)
             } else {
                 stampRepository.update(template)
+                template.id
             }
+            vaultNoteRepository.saveTemplateFile(template.copy(id = id))
         }
     }
 
     fun deleteTemplate(template: Stamp) {
         viewModelScope.launch(Dispatchers.IO) {
             stampRepository.delete(template)
+            vaultNoteRepository.deleteTemplateFile(template)
         }
     }
 

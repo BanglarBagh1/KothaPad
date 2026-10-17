@@ -283,7 +283,7 @@ class VaultManager(private val context: Context) {
     suspend fun readText(file: DocumentFile): String = withContext(Dispatchers.IO) {
         try {
             context.contentResolver.openInputStream(file.uri)?.use { stream ->
-                stream.bufferedReader().readText()
+                stream.bufferedReader(Charsets.UTF_8).readText()
             } ?: ""
         } catch (e: Exception) {
             ""
@@ -293,7 +293,7 @@ class VaultManager(private val context: Context) {
     suspend fun writeText(file: DocumentFile, text: String): Boolean = withContext(Dispatchers.IO) {
         try {
             context.contentResolver.openOutputStream(file.uri, "wt")?.use { stream ->
-                stream.bufferedWriter().apply {
+                stream.bufferedWriter(Charsets.UTF_8).apply {
                     write(text)
                     flush()
                 }
@@ -376,6 +376,58 @@ class VaultManager(private val context: Context) {
             parentDir.createDirectory(cleanName)
         } catch (e: Exception) {
             null
+        }
+    }
+
+    suspend fun getOrCreateDirRecursive(
+        rootDir: DocumentFile,
+        relativeDirPath: String
+    ): DocumentFile? = withContext(Dispatchers.IO) {
+        val trimmed = relativeDirPath.trim().trim('/')
+        if (trimmed.isEmpty()) return@withContext rootDir
+        val segments = trimmed.split("/").filter { it.isNotBlank() }
+        var current: DocumentFile = rootDir
+        for (seg in segments) {
+            val next = createDir(current, seg) ?: return@withContext null
+            current = next
+        }
+        current
+    }
+
+    suspend fun findDirRecursive(
+        rootDir: DocumentFile,
+        relativeDirPath: String
+    ): DocumentFile? = withContext(Dispatchers.IO) {
+        val trimmed = relativeDirPath.trim().trim('/')
+        if (trimmed.isEmpty()) return@withContext rootDir
+        val segments = trimmed.split("/").filter { it.isNotBlank() }
+        var current: DocumentFile = rootDir
+        for (seg in segments) {
+            val cleanName = sanitizeFilename(seg)
+            val next = current.findFile(cleanName)
+            if (next != null && next.isDirectory) {
+                current = next
+            } else {
+                return@withContext null
+            }
+        }
+        current
+    }
+
+    suspend fun findFileRecursive(
+        rootDir: DocumentFile,
+        relativeFilePath: String
+    ): DocumentFile? = withContext(Dispatchers.IO) {
+        val trimmed = relativeFilePath.trim().trim('/')
+        if (trimmed.isEmpty()) return@withContext null
+        val idx = trimmed.lastIndexOf('/')
+        if (idx == -1) {
+            rootDir.findFile(trimmed)
+        } else {
+            val dirPath = trimmed.substring(0, idx)
+            val fileName = trimmed.substring(idx + 1)
+            val dir = findDirRecursive(rootDir, dirPath) ?: return@withContext null
+            dir.findFile(fileName)
         }
     }
 

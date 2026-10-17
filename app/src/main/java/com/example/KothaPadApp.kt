@@ -13,7 +13,7 @@ import kotlinx.coroutines.SupervisorJob
 
 class KothaPadApp : Application() {
 
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val database by lazy { AppDatabase.getInstance(this, applicationScope) }
     val vaultManager by lazy { com.example.data.vault.VaultManager(this) }
@@ -21,8 +21,11 @@ class KothaPadApp : Application() {
     val settingsRepository by lazy {
         com.example.data.vault.SettingsRepository(this, vaultManager, applicationScope)
     }
+    val vaultNoteRepository by lazy {
+        com.example.data.vault.VaultNoteRepository(this, vaultManager, preferencesManager, applicationScope)
+    }
 
-    val noteRepository by lazy { NoteRepository(database.noteDao()) }
+    val noteRepository by lazy { NoteRepository(database.noteDao(), vaultNoteRepository) }
     val stampRepository by lazy { StampRepository(database.stampDao()) }
     val spokenCommandRepository by lazy { SpokenCommandRepository(database.spokenCommandDao()) }
     val markdownSettingsRepository by lazy { com.example.markdown.MarkdownSettingsRepository(preferencesManager) }
