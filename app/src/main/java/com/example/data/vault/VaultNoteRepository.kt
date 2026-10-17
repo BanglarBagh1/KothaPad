@@ -53,6 +53,12 @@ data class CachedNoteEntry(
     val lastModified: Long
 )
 
+data class ExternalNoteChange(
+    val note: Note,
+    val diskContent: String,
+    val lastModified: Long
+)
+
 class VaultNoteRepository(
     private val context: Context,
     private val vaultManager: VaultManager,
@@ -84,6 +90,16 @@ class VaultNoteRepository(
 
     private val _lastSaveError = MutableStateFlow<String?>(null)
     val lastSaveError: StateFlow<String?> = _lastSaveError.asStateFlow()
+
+    // External change detection
+    private val _externalNoteChange = MutableStateFlow<ExternalNoteChange?>(null)
+    val externalNoteChange: StateFlow<ExternalNoteChange?> = _externalNoteChange.asStateFlow()
+
+    var currentlyOpenNoteId: Long? = null
+
+    fun clearExternalNoteChange() {
+        _externalNoteChange.value = null
+    }
 
     // Internal In-Memory Index
     // relPath -> CachedNoteEntry
@@ -181,6 +197,21 @@ class VaultNoteRepository(
         startVaultScan(vaultDoc)
     }
 
+    suspend fun rebuildIndex() = withContext(Dispatchers.IO) {
+        val vaultDoc = currentVaultDoc ?: return@withContext
+        scanJob?.cancel()
+        cache.clear()
+        metadataMap.clear()
+        pathToIdMap.clear()
+        idToPathMap.clear()
+        val kothaDir = vaultManager.findDirRecursive(vaultDoc, KOTHAPAD_DIR)
+        if (kothaDir != null) {
+            loadMetadata(kothaDir)
+            loadWorkspace(kothaDir)
+        }
+        startVaultScan(vaultDoc)
+    }
+
     private suspend fun scanVaultRecursive(vaultDoc: DocumentFile) = withContext(Dispatchers.IO) {
         val discoveredEntries = mutableListOf<CachedNoteEntry>()
         val foundPaths = mutableSetOf<String>()
@@ -249,6 +280,16 @@ class VaultNoteRepository(
                             deletedAt = meta.deletedAt,
                             sessionDurationSec = meta.sessionDurationSec
                         )
+
+                        // Check if this is the currently open note and content changed externally
+                        if (existing != null && id == currentlyOpenNoteId && existing.note.content != content) {
+                            _externalNoteChange.value = ExternalNoteChange(
+                                note = note,
+                                diskContent = content,
+                                lastModified = lastMod
+                            )
+                        }
+
                         val entry = CachedNoteEntry(
                             note = note,
                             file = child,
@@ -271,6 +312,12 @@ class VaultNoteRepository(
             cache.remove(r)
             removeIdForPath(r)
             metadataMap.remove(r)
+        }
+
+        // Clean up orphaned metadata keys
+        val orphanMeta = metadataMap.keys.filter { !foundPaths.contains(it) }
+        for (orphan in orphanMeta) {
+            metadataMap.remove(orphan)
         }
 
         // Sync discovered real folders to customFolders so they appear in Notes Manager

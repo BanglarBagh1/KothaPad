@@ -54,12 +54,25 @@ class EditorViewModel(
     private val speechSupervisor: SpeechSupervisor,
     val vaultManager: com.example.data.vault.VaultManager = (application as KothaPadApp).vaultManager,
     val settingsRepository: com.example.data.vault.SettingsRepository = (application as KothaPadApp).settingsRepository,
-    val vaultNoteRepository: com.example.data.vault.VaultNoteRepository = (application as KothaPadApp).vaultNoteRepository
+    val vaultNoteRepository: com.example.data.vault.VaultNoteRepository = (application as KothaPadApp).vaultNoteRepository,
+    val vaultMigrationManager: com.example.data.vault.VaultMigrationManager = (application as KothaPadApp).vaultMigrationManager
 ) : AndroidViewModel(application) {
 
     // Vault State
     val vaultState: StateFlow<com.example.data.vault.VaultState> = vaultManager.vaultState
     val showFinishSetupDialog = MutableStateFlow(false)
+
+    // Vault Migration Dialog & State
+    val showMigrationPromptDialog = MutableStateFlow(false)
+    val showVaultConflictPromptDialog = MutableStateFlow(false)
+    val isMigrating = MutableStateFlow(false)
+    val migrationProgress = MutableStateFlow<String?>(null)
+    val migrationError = MutableStateFlow<String?>(null)
+    private var pendingVaultDoc: androidx.documentfile.provider.DocumentFile? = null
+
+    // External change conflict dialog
+    val showExternalConflictDialog = MutableStateFlow(false)
+    val pendingExternalChange = MutableStateFlow<com.example.data.vault.ExternalNoteChange?>(null)
 
     // Vault Scanner State
     val isVaultScanning: StateFlow<Boolean> = vaultNoteRepository.isScanning
@@ -362,6 +375,36 @@ class EditorViewModel(
                             createNewNote()
                         }
                     }
+                    checkAndPromptMigration(doc)
+                }
+            }
+        }
+
+        // Listen for external changes from other apps (e.g. Obsidian)
+        viewModelScope.launch {
+            vaultNoteRepository.externalNoteChange.collect { change ->
+                if (change != null) {
+                    val current = _currentNote.value
+                    if (current != null && current.id == change.note.id) {
+                        val hasUnsavedEdits = (_textFieldValue.value.text != current.content) || (autoSaveJob?.isActive == true)
+                        if (!hasUnsavedEdits) {
+                            // Reload silently!
+                            _currentNote.value = change.note.copy(content = change.diskContent)
+                            _textFieldValue.value = TextFieldValue(
+                                text = change.diskContent,
+                                selection = TextRange(change.diskContent.length)
+                            )
+                            undoStack.clear()
+                            redoStack.clear()
+                            updateUndoRedoStates()
+                            vaultNoteRepository.clearExternalNoteChange()
+                        } else {
+                            pendingExternalChange.value = change
+                            showExternalConflictDialog.value = true
+                        }
+                    } else {
+                        vaultNoteRepository.clearExternalNoteChange()
+                    }
                 }
             }
         }
@@ -391,6 +434,7 @@ class EditorViewModel(
             flushAutoSave()
         } else {
             checkAndResumeSessionTimer()
+            vaultManager.refreshAccessibility()
             viewModelScope.launch(Dispatchers.IO) {
                 vaultNoteRepository.rescanIfNeeded()
             }
@@ -413,6 +457,7 @@ class EditorViewModel(
         }
         pauseSessionTimerAndPersist()
         flushAutoSave()
+        vaultNoteRepository.currentlyOpenNoteId = note.id
         _currentNote.value = note
         _textFieldValue.value = TextFieldValue(
             text = note.content,
@@ -552,6 +597,7 @@ class EditorViewModel(
                         withContext(Dispatchers.Main) {
                             if (noteToLoad != null) loadNote(noteToLoad) else createNewNote()
                         }
+                        checkAndPromptMigration(vaultDoc)
                     }
                     onResult?.invoke(true, null)
                 },
@@ -586,6 +632,7 @@ class EditorViewModel(
                         withContext(Dispatchers.Main) {
                             if (noteToLoad != null) loadNote(noteToLoad) else createNewNote()
                         }
+                        checkAndPromptMigration(vaultDoc)
                     }
                     onResult?.invoke(true, null)
                 },
@@ -628,6 +675,7 @@ class EditorViewModel(
                         withContext(Dispatchers.Main) {
                             if (noteToLoad != null) loadNote(noteToLoad) else createNewNote()
                         }
+                        checkAndPromptMigration(vaultDoc)
                     }
                     onResult?.invoke(true, null)
                 },
@@ -635,6 +683,125 @@ class EditorViewModel(
                     onResult?.invoke(false, err.message ?: "Failed to switch vault")
                 }
             )
+        }
+    }
+
+    fun checkAndPromptMigration(vaultDoc: androidx.documentfile.provider.DocumentFile, onContinue: () -> Unit = {}) {
+        viewModelScope.launch {
+            val hasOld = vaultMigrationManager.hasOldInternalData()
+            val isDone = vaultMigrationManager.isMigrationCompleted()
+            if (hasOld && !isDone) {
+                pendingVaultDoc = vaultDoc
+                val hasVaultData = vaultMigrationManager.doesVaultHaveData(vaultDoc)
+                if (hasVaultData) {
+                    showVaultConflictPromptDialog.value = true
+                } else {
+                    showMigrationPromptDialog.value = true
+                }
+            } else {
+                onContinue()
+            }
+        }
+    }
+
+    fun proceedWithMigration() {
+        val vaultDoc = pendingVaultDoc ?: vaultManager.getCurrentVaultDocumentFile() ?: return
+        showMigrationPromptDialog.value = false
+        showVaultConflictPromptDialog.value = false
+        viewModelScope.launch {
+            isMigrating.value = true
+            migrationProgress.value = "Starting migration..."
+            val result = vaultMigrationManager.migrateInternalDataToVault(vaultDoc) { progress ->
+                migrationProgress.value = progress
+            }
+            isMigrating.value = false
+            migrationProgress.value = null
+            result.fold(
+                onSuccess = {
+                    vaultNoteRepository.onVaultOpened(vaultDoc)
+                    reloadAfterImport()
+                },
+                onFailure = { err ->
+                    migrationError.value = err.message ?: "Migration failed"
+                }
+            )
+        }
+    }
+
+    fun skipMigration() {
+        showMigrationPromptDialog.value = false
+        showVaultConflictPromptDialog.value = false
+        pendingVaultDoc = null
+        viewModelScope.launch {
+            preferencesManager.setOldDataMigrated(true)
+        }
+    }
+
+    fun clearMigrationError() {
+        migrationError.value = null
+    }
+
+    fun resolveExternalConflict(keepMine: Boolean) {
+        val change = pendingExternalChange.value
+        showExternalConflictDialog.value = false
+        pendingExternalChange.value = null
+        vaultNoteRepository.clearExternalNoteChange()
+
+        if (keepMine) {
+            flushAutoSave()
+        } else if (change != null) {
+            _currentNote.value = change.note.copy(content = change.diskContent)
+            _textFieldValue.value = TextFieldValue(
+                text = change.diskContent,
+                selection = TextRange(change.diskContent.length)
+            )
+            undoStack.clear()
+            redoStack.clear()
+            updateUndoRedoStates()
+        }
+    }
+
+    fun reloadVaultFromDisk(onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            flushAutoSave()
+            settingsRepository.flushSaves()
+            val vaultDoc = vaultManager.getCurrentVaultDocumentFile()
+            if (vaultDoc != null) {
+                settingsRepository.loadVaultSettings(vaultDoc, preferencesManager)
+                vaultNoteRepository.startVaultScan(vaultDoc)
+            }
+            withContext(Dispatchers.Main) {
+                onComplete?.invoke()
+            }
+        }
+    }
+
+    fun rebuildVaultIndex(onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            flushAutoSave()
+            settingsRepository.flushSaves()
+            vaultNoteRepository.rebuildIndex()
+            withContext(Dispatchers.Main) {
+                onComplete?.invoke()
+            }
+        }
+    }
+
+    fun deleteOldInternalData(onResult: (Int) -> Unit) {
+        viewModelScope.launch {
+            val count = vaultMigrationManager.deleteOldInternalData()
+            withContext(Dispatchers.Main) {
+                onResult(count)
+            }
+        }
+    }
+
+    fun getOldInternalNotesCount(onResult: (Int) -> Unit) {
+        viewModelScope.launch {
+            val count = vaultMigrationManager.getOldNotesCount()
+            withContext(Dispatchers.Main) {
+                onResult(count)
+            }
         }
     }
 
@@ -1902,7 +2069,8 @@ class EditorViewModel(
                     stampRepository = stampRepository,
                     spokenCommandRepository = spokenCommandRepository,
                     preferencesManager = preferencesManager,
-                    outputStream = outputStream
+                    outputStream = outputStream,
+                    vaultManager = vaultManager
                 )
                 withContext(Dispatchers.Main) {
                     onResult(Result.success(summary))
@@ -1937,12 +2105,15 @@ class EditorViewModel(
 
     fun restoreBackup(backupData: ParsedBackupData, onResult: (Result<BackupSummary>) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
             try {
                 val summary = BackupManager.restoreBackup(
+                    context = app,
                     noteRepository = noteRepository,
                     stampRepository = stampRepository,
                     spokenCommandRepository = spokenCommandRepository,
                     preferencesManager = preferencesManager,
+                    vaultManager = vaultManager,
                     backupData = backupData
                 )
                 reloadAfterImport()

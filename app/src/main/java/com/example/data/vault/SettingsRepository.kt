@@ -252,6 +252,14 @@ class SettingsRepository(
         finalSettings
     }
 
+    suspend fun exportCurrentPreferencesToVault(vaultDoc: DocumentFile, preferencesManager: PreferencesManager) = withContext(Dispatchers.IO) {
+        val dotKothaPad = vaultManager.getOrCreateDirRecursive(vaultDoc, SETTINGS_DIR) ?: return@withContext
+        val currentSettings = seedFromPreferencesManager(preferencesManager)
+        _settings.value = currentSettings
+        val jsonString = serializeToJson(currentSettings).toString(2)
+        vaultManager.writeTextAtomic(dotKothaPad, SETTINGS_FILE_NAME, jsonString, "application/json")
+    }
+
     private suspend fun seedFromPreferencesManager(pm: PreferencesManager): AppSettings = withContext(Dispatchers.IO) {
         try {
             val floatings = pm.floatingLayoutSettings.first()

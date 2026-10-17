@@ -141,6 +141,7 @@ class PreferencesManager(private val context: Context) {
         val KEY_NEW_NOTE_NAMING_RULE = stringPreferencesKey("new_note_naming_rule")
         val KEY_AFTER_CREATING_NOTE = stringPreferencesKey("after_creating_note")
         val KEY_LAST_ACTIVE_FOLDER = stringPreferencesKey("last_active_folder")
+        val KEY_OLD_DATA_MIGRATED = booleanPreferencesKey("old_data_migrated_to_vault")
 
         // Floating Controls Layout ("Side Rail") Keys
         val KEY_FLOATING_USE_SIDE_RAIL = booleanPreferencesKey("floating_use_side_rail")
@@ -450,6 +451,11 @@ class PreferencesManager(private val context: Context) {
     val keyboardLayoutVersion: Flow<Int> = context.dataStore.data.map { it[KEY_KEYBOARD_LAYOUT_VERSION] ?: 1 }
     val expandedFolders: Flow<Set<String>> = context.dataStore.data.map { it[KEY_EXPANDED_FOLDERS] ?: setOf("General", "Templates") }
     val customFolders: Flow<Set<String>> = context.dataStore.data.map { it[KEY_CUSTOM_FOLDERS] ?: emptySet() }
+    val isOldDataMigrated: Flow<Boolean> = context.dataStore.data.map { it[KEY_OLD_DATA_MIGRATED] ?: false }
+
+    suspend fun setOldDataMigrated(migrated: Boolean) {
+        context.dataStore.edit { it[KEY_OLD_DATA_MIGRATED] = migrated }
+    }
 
     // Update helpers
     suspend fun setDictationMode(mode: String) {

@@ -308,11 +308,15 @@ fun SettingsScreen(
     onRestoreBackup: (ParsedBackupData, (Result<BackupSummary>) -> Unit) -> Unit = { _, _ -> },
     // Vault Section Callbacks & State
     vaultState: com.example.data.vault.VaultState = com.example.data.vault.VaultState(),
+    vaultNotesCount: Int = 0,
     onSwitchVault: (com.example.data.vault.VaultInfo) -> Unit = {},
     onOpenVaultUri: (Uri) -> Unit = {},
     onCreateNewVault: (Uri, String) -> Unit = { _, _ -> },
     onRemoveRecentVault: (String) -> Unit = {},
     onCloseVault: () -> Unit = {},
+    onReloadVaultFromDisk: () -> Unit = {},
+    onRebuildVaultIndex: () -> Unit = {},
+    onDeleteOldInternalData: () -> Unit = {},
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -338,6 +342,7 @@ fun SettingsScreen(
     var showOpenOrNewVaultDialog by remember { mutableStateOf(false) }
     var showRecentVaultsDialog by remember { mutableStateOf(false) }
     var showCreateVaultNameDialog by remember { mutableStateOf(false) }
+    var showDeleteOldDataDialog by remember { mutableStateOf(false) }
     var selectedParentUri by remember { mutableStateOf<Uri?>(null) }
     var newVaultNameInput by remember { mutableStateOf("KothaVault") }
 

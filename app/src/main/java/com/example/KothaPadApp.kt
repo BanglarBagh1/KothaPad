@@ -24,6 +24,17 @@ class KothaPadApp : Application() {
     val vaultNoteRepository by lazy {
         com.example.data.vault.VaultNoteRepository(this, vaultManager, preferencesManager, applicationScope)
     }
+    val vaultMigrationManager by lazy {
+        com.example.data.vault.VaultMigrationManager(
+            context = this,
+            vaultManager = vaultManager,
+            noteDao = database.noteDao(),
+            stampDao = database.stampDao(),
+            spokenCommandDao = database.spokenCommandDao(),
+            preferencesManager = preferencesManager,
+            settingsRepository = settingsRepository
+        )
+    }
 
     val noteRepository by lazy { NoteRepository(database.noteDao(), vaultNoteRepository) }
     val stampRepository by lazy { StampRepository(database.stampDao()) }

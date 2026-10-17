@@ -1,6 +1,7 @@
 package com.example.data.backup
 
 import android.content.Context
+import androidx.documentfile.provider.DocumentFile
 import com.example.data.model.Note
 import com.example.data.model.SpokenCommand
 import com.example.data.model.Stamp
@@ -8,12 +9,14 @@ import com.example.data.preferences.PreferencesManager
 import com.example.data.repository.NoteRepository
 import com.example.data.repository.SpokenCommandRepository
 import com.example.data.repository.StampRepository
+import com.example.data.vault.VaultManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.zip.ZipEntry
@@ -34,12 +37,14 @@ data class ParsedBackupData(
     val notes: List<Note>,
     val stamps: List<Stamp>,
     val commands: List<SpokenCommand>,
-    val settings: JSONObject
+    val settings: JSONObject,
+    val isVaultArchive: Boolean = false,
+    val vaultEntries: Map<String, ByteArray> = emptyMap()
 )
 
 object BackupManager {
 
-    const val CURRENT_BACKUP_VERSION = 2
+    const val CURRENT_BACKUP_VERSION = 3
     const val MANIFEST_FILE = "manifest.json"
     const val NOTES_FILE = "notes.json"
     const val TEMPLATES_FILE = "templates.json"
@@ -47,6 +52,90 @@ object BackupManager {
     const val COMMANDS_FILE = "spoken_commands.json"
 
     suspend fun exportBackup(
+        context: Context,
+        noteRepository: NoteRepository,
+        stampRepository: StampRepository,
+        spokenCommandRepository: SpokenCommandRepository,
+        preferencesManager: PreferencesManager,
+        outputStream: OutputStream,
+        vaultManager: VaultManager? = null
+    ): BackupSummary = withContext(Dispatchers.IO) {
+        val vaultDoc = vaultManager?.getCurrentVaultDocumentFile()
+
+        if (vaultDoc != null && vaultDoc.exists()) {
+            exportVaultArchive(context, vaultManager, vaultDoc, outputStream)
+        } else {
+            exportLegacyJsonBackup(context, noteRepository, stampRepository, spokenCommandRepository, preferencesManager, outputStream)
+        }
+    }
+
+    private suspend fun exportVaultArchive(
+        context: Context,
+        vaultManager: VaultManager,
+        vaultDoc: DocumentFile,
+        outputStream: OutputStream
+    ): BackupSummary = withContext(Dispatchers.IO) {
+        var notesCount = 0
+        var templatesCount = 0
+
+        val appVersion = try {
+            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            pInfo.versionName ?: "1.0"
+        } catch (_: Exception) {
+            "1.0"
+        }
+
+        ZipOutputStream(BufferedOutputStream(outputStream)).use { zipOut ->
+            // Recursively collect all files from the vault
+            suspend fun addDirToZip(dir: DocumentFile, currentRelPath: String) {
+                val children = vaultManager.listChildren(dir)
+                for (child in children) {
+                    val name = child.name ?: continue
+                    val relPath = if (currentRelPath.isEmpty()) name else "$currentRelPath/$name"
+
+                    if (child.isDirectory) {
+                        addDirToZip(child, relPath)
+                    } else if (child.isFile) {
+                        if (name.endsWith(".md", ignoreCase = true)) {
+                            if (relPath.startsWith("Templates/", ignoreCase = true)) {
+                                templatesCount++
+                            } else {
+                                notesCount++
+                            }
+                        }
+                        zipOut.putNextEntry(ZipEntry(relPath))
+                        context.contentResolver.openInputStream(child.uri)?.use { inStream ->
+                            inStream.copyTo(zipOut)
+                        }
+                        zipOut.closeEntry()
+                    }
+                }
+            }
+
+            addDirToZip(vaultDoc, "")
+
+            // Write Manifest
+            val manifestObj = JSONObject().apply {
+                put("backupVersion", CURRENT_BACKUP_VERSION)
+                put("appVersion", appVersion)
+                put("appName", "KothaPad")
+                put("isVault", true)
+                put("exportTimestamp", System.currentTimeMillis())
+                put("notesCount", notesCount)
+                put("templatesCount", templatesCount)
+            }
+            zipOut.putNextEntry(ZipEntry(MANIFEST_FILE))
+            zipOut.write(manifestObj.toString(2).toByteArray(Charsets.UTF_8))
+            zipOut.closeEntry()
+
+            zipOut.finish()
+            zipOut.flush()
+        }
+
+        BackupSummary(notesCount = notesCount, templatesCount = templatesCount)
+    }
+
+    private suspend fun exportLegacyJsonBackup(
         context: Context,
         noteRepository: NoteRepository,
         stampRepository: StampRepository,
@@ -66,57 +155,49 @@ object BackupManager {
             "1.0"
         }
 
-        // Build Manifest JSON
         val manifestObj = JSONObject().apply {
-            put("backupVersion", CURRENT_BACKUP_VERSION)
+            put("backupVersion", 2)
             put("appVersion", appVersion)
             put("appName", "KothaPad")
+            put("isVault", false)
             put("exportTimestamp", System.currentTimeMillis())
             put("notesCount", notes.size)
             put("templatesCount", stamps.size)
             put("commandsCount", commands.size)
         }
 
-        // Build Notes JSON Array
         val notesArray = JSONArray()
         for (note in notes) {
             notesArray.put(noteToJson(note))
         }
 
-        // Build Templates/Stamps JSON Array
         val stampsArray = JSONArray()
         for (stamp in stamps) {
             stampsArray.put(stampToJson(stamp))
         }
 
-        // Build Spoken Commands JSON Array
         val commandsArray = JSONArray()
         for (cmd in commands) {
             commandsArray.put(spokenCommandToJson(cmd))
         }
 
         ZipOutputStream(BufferedOutputStream(outputStream)).use { zipOut ->
-            // 1. Manifest
             zipOut.putNextEntry(ZipEntry(MANIFEST_FILE))
             zipOut.write(manifestObj.toString(2).toByteArray(Charsets.UTF_8))
             zipOut.closeEntry()
 
-            // 2. Notes
             zipOut.putNextEntry(ZipEntry(NOTES_FILE))
             zipOut.write(notesArray.toString(2).toByteArray(Charsets.UTF_8))
             zipOut.closeEntry()
 
-            // 3. Templates (Stamps)
             zipOut.putNextEntry(ZipEntry(TEMPLATES_FILE))
             zipOut.write(stampsArray.toString(2).toByteArray(Charsets.UTF_8))
             zipOut.closeEntry()
 
-            // 4. Settings
             zipOut.putNextEntry(ZipEntry(SETTINGS_FILE))
             zipOut.write(settings.toString(2).toByteArray(Charsets.UTF_8))
             zipOut.closeEntry()
 
-            // 5. Spoken Commands
             zipOut.putNextEntry(ZipEntry(COMMANDS_FILE))
             zipOut.write(commandsArray.toString(2).toByteArray(Charsets.UTF_8))
             zipOut.closeEntry()
@@ -133,15 +214,16 @@ object BackupManager {
     }
 
     suspend fun validateAndParseBackup(inputStream: InputStream): ParsedBackupData = withContext(Dispatchers.IO) {
-        val entries = mutableMapOf<String, String>()
+        val entries = mutableMapOf<String, ByteArray>()
 
         try {
             ZipInputStream(BufferedInputStream(inputStream)).use { zipIn ->
                 var entry: ZipEntry? = zipIn.nextEntry
                 while (entry != null) {
                     if (!entry.isDirectory) {
-                        val bytes = zipIn.readBytes()
-                        entries[entry.name] = bytes.toString(Charsets.UTF_8)
+                        val buffer = ByteArrayOutputStream()
+                        zipIn.copyTo(buffer)
+                        entries[entry.name] = buffer.toByteArray()
                     }
                     zipIn.closeEntry()
                     entry = zipIn.nextEntry
@@ -155,56 +237,83 @@ object BackupManager {
             throw IllegalArgumentException("The backup archive is empty or corrupted.")
         }
 
-        // 1. Validate Manifest
-        val manifestStr = entries[MANIFEST_FILE]
-            ?: throw IllegalArgumentException("Missing required '$MANIFEST_FILE' in backup.")
-        val manifestObj = try {
-            JSONObject(manifestStr)
-        } catch (e: Exception) {
-            throw IllegalArgumentException("Corrupted '$MANIFEST_FILE': ${e.message}")
+        // Check if vault backup
+        val isVault = entries.keys.any { it.startsWith(".kothapad/") || (it.endsWith(".md", ignoreCase = true) && !it.equals(MANIFEST_FILE)) }
+
+        val manifestBytes = entries[MANIFEST_FILE]
+        val manifestObj = manifestBytes?.let {
+            try {
+                JSONObject(it.toString(Charsets.UTF_8))
+            } catch (_: Exception) {
+                null
+            }
         }
 
-        val backupVersion = safeOptInt(manifestObj, "backupVersion", -1)
-        if (backupVersion <= 0) {
-            throw IllegalArgumentException("Invalid backup file: 'backupVersion' is missing or invalid.")
-        }
-        if (backupVersion > CURRENT_BACKUP_VERSION) {
-            throw IllegalArgumentException("Unsupported backup version ($backupVersion). This backup was created with a newer version of KothaPad.")
+        val appVersion = manifestObj?.optString("appVersion", "1.0") ?: "1.0"
+        val timestamp = manifestObj?.let { safeOptLong(it, "exportTimestamp", System.currentTimeMillis()) } ?: System.currentTimeMillis()
+        val backupVersion = manifestObj?.let { safeOptInt(it, "backupVersion", if (isVault) 3 else 2) } ?: (if (isVault) 3 else 2)
+
+        if (isVault) {
+            // Count notes and templates
+            var notesCount = 0
+            var templatesCount = 0
+            val fakeNotes = mutableListOf<Note>()
+            val fakeStamps = mutableListOf<Stamp>()
+
+            for ((path, bytes) in entries) {
+                if (path.endsWith(".md", ignoreCase = true)) {
+                    if (path.startsWith("Templates/", ignoreCase = true)) {
+                        templatesCount++
+                        val label = path.substringAfterLast("/").removeSuffix(".md")
+                        fakeStamps.add(Stamp(label = label, templateText = bytes.toString(Charsets.UTF_8)))
+                    } else {
+                        notesCount++
+                        val title = path.substringAfterLast("/").removeSuffix(".md")
+                        val folder = if (path.contains("/")) path.substringBeforeLast("/") else "General"
+                        fakeNotes.add(Note(title = title, content = bytes.toString(Charsets.UTF_8), folder = folder))
+                    }
+                }
+            }
+
+            return@withContext ParsedBackupData(
+                backupVersion = backupVersion,
+                appVersion = appVersion,
+                exportTimestamp = timestamp,
+                notes = fakeNotes,
+                stamps = fakeStamps,
+                commands = emptyList(),
+                settings = JSONObject(),
+                isVaultArchive = true,
+                vaultEntries = entries
+            )
         }
 
-        val appVersion = manifestObj.optString("appVersion", "Unknown")
-        val timestamp = safeOptLong(manifestObj, "exportTimestamp", System.currentTimeMillis())
-
-        // 2. Validate Notes
-        val notesStr = entries[NOTES_FILE]
+        // Legacy JSON validation
+        val notesStr = entries[NOTES_FILE]?.toString(Charsets.UTF_8)
             ?: throw IllegalArgumentException("Missing required '$NOTES_FILE' in backup.")
         val notesList = mutableListOf<Note>()
         try {
             val notesArray = JSONArray(notesStr)
             for (i in 0 until notesArray.length()) {
-                val item = notesArray.getJSONObject(i)
-                notesList.add(jsonToNote(item))
+                notesList.add(jsonToNote(notesArray.getJSONObject(i)))
             }
         } catch (e: Exception) {
             throw IllegalArgumentException("Corrupted notes data in '$NOTES_FILE': ${e.message}")
         }
 
-        // 3. Validate Templates
-        val templatesStr = entries[TEMPLATES_FILE]
+        val templatesStr = entries[TEMPLATES_FILE]?.toString(Charsets.UTF_8)
             ?: throw IllegalArgumentException("Missing required '$TEMPLATES_FILE' in backup.")
         val stampsList = mutableListOf<Stamp>()
         try {
             val templatesArray = JSONArray(templatesStr)
             for (i in 0 until templatesArray.length()) {
-                val item = templatesArray.getJSONObject(i)
-                stampsList.add(jsonToStamp(item))
+                stampsList.add(jsonToStamp(templatesArray.getJSONObject(i)))
             }
         } catch (e: Exception) {
             throw IllegalArgumentException("Corrupted templates data in '$TEMPLATES_FILE': ${e.message}")
         }
 
-        // 4. Validate Settings
-        val settingsStr = entries[SETTINGS_FILE]
+        val settingsStr = entries[SETTINGS_FILE]?.toString(Charsets.UTF_8)
             ?: throw IllegalArgumentException("Missing required '$SETTINGS_FILE' in backup.")
         val settingsObj = try {
             JSONObject(settingsStr)
@@ -212,18 +321,15 @@ object BackupManager {
             throw IllegalArgumentException("Corrupted settings data in '$SETTINGS_FILE': ${e.message}")
         }
 
-        // 5. Optional Spoken Commands
         val commandsList = mutableListOf<SpokenCommand>()
-        val commandsStr = entries[COMMANDS_FILE]
+        val commandsStr = entries[COMMANDS_FILE]?.toString(Charsets.UTF_8)
         if (!commandsStr.isNullOrBlank()) {
             try {
                 val commandsArray = JSONArray(commandsStr)
                 for (i in 0 until commandsArray.length()) {
                     commandsList.add(jsonToSpokenCommand(commandsArray.getJSONObject(i)))
                 }
-            } catch (_: Exception) {
-                // Ignore optional command corruption if other essentials are valid
-            }
+            } catch (_: Exception) {}
         }
 
         ParsedBackupData(
@@ -233,43 +339,211 @@ object BackupManager {
             notes = notesList,
             stamps = stampsList,
             commands = commandsList,
-            settings = settingsObj
+            settings = settingsObj,
+            isVaultArchive = false,
+            vaultEntries = emptyMap()
         )
     }
 
     suspend fun restoreBackup(
+        context: Context,
+        noteRepository: NoteRepository,
+        stampRepository: StampRepository,
+        spokenCommandRepository: SpokenCommandRepository,
+        preferencesManager: PreferencesManager,
+        vaultManager: VaultManager? = null,
+        backupData: ParsedBackupData
+    ): BackupSummary = withContext(Dispatchers.IO) {
+        val vaultDoc = vaultManager?.getCurrentVaultDocumentFile()
+
+        if (vaultDoc != null && vaultDoc.exists()) {
+            restoreVaultBackupWithRollback(context, vaultManager, vaultDoc, preferencesManager, backupData)
+        } else {
+            restoreLegacyRoomBackup(noteRepository, stampRepository, spokenCommandRepository, preferencesManager, backupData)
+        }
+    }
+
+    private suspend fun restoreVaultBackupWithRollback(
+        context: Context,
+        vaultManager: VaultManager,
+        vaultDoc: DocumentFile,
+        preferencesManager: PreferencesManager,
+        backupData: ParsedBackupData
+    ): BackupSummary = withContext(Dispatchers.IO) {
+        // Snapshot existing vault files for rollback
+        val snapshot = mutableMapOf<String, ByteArray>()
+        try {
+            suspend fun snapshotDir(dir: DocumentFile, currentRelPath: String) {
+                val children = vaultManager.listChildren(dir)
+                for (child in children) {
+                    val name = child.name ?: continue
+                    val relPath = if (currentRelPath.isEmpty()) name else "$currentRelPath/$name"
+                    if (child.isDirectory) {
+                        snapshotDir(child, relPath)
+                    } else if (child.isFile) {
+                        context.contentResolver.openInputStream(child.uri)?.use { stream ->
+                            val buffer = ByteArrayOutputStream()
+                            stream.copyTo(buffer)
+                            snapshot[relPath] = buffer.toByteArray()
+                        }
+                    }
+                }
+            }
+            snapshotDir(vaultDoc, "")
+        } catch (_: Exception) {}
+
+        // Helper to rollback if anything fails
+        suspend fun performRollback() {
+            try {
+                // Clear damaged files
+                val currentChildren = vaultManager.listChildren(vaultDoc)
+                for (ch in currentChildren) {
+                    vaultManager.delete(ch)
+                }
+                // Restore snapshot
+                for ((relPath, bytes) in snapshot) {
+                    val idx = relPath.lastIndexOf('/')
+                    val dir = if (idx != -1) {
+                        vaultManager.getOrCreateDirRecursive(vaultDoc, relPath.substring(0, idx)) ?: vaultDoc
+                    } else vaultDoc
+                    val fileName = if (idx != -1) relPath.substring(idx + 1) else relPath
+                    vaultManager.writeTextAtomic(dir, fileName, bytes.toString(Charsets.UTF_8))
+                }
+            } catch (_: Exception) {}
+        }
+
+        try {
+            // Delete existing files in vault
+            val currentChildren = vaultManager.listChildren(vaultDoc)
+            for (ch in currentChildren) {
+                vaultManager.delete(ch)
+            }
+
+            var notesRestored = 0
+            var templatesRestored = 0
+
+            if (backupData.isVaultArchive) {
+                // Restore directly from vault entries
+                for ((relPath, bytes) in backupData.vaultEntries) {
+                    if (relPath.equals(MANIFEST_FILE, ignoreCase = true)) continue
+                    val idx = relPath.lastIndexOf('/')
+                    val dir = if (idx != -1) {
+                        vaultManager.getOrCreateDirRecursive(vaultDoc, relPath.substring(0, idx))
+                            ?: throw IllegalStateException("Cannot create directory for $relPath")
+                    } else vaultDoc
+                    val fileName = if (idx != -1) relPath.substring(idx + 1) else relPath
+                    val textContent = bytes.toString(Charsets.UTF_8)
+                    val mime = if (fileName.endsWith(".json")) "application/json" else "text/markdown"
+                    val written = vaultManager.writeTextAtomic(dir, fileName, textContent, mime)
+                        ?: throw IllegalStateException("Failed to write file $relPath")
+
+                    if (fileName.endsWith(".md", ignoreCase = true)) {
+                        if (relPath.startsWith("Templates/", ignoreCase = true)) {
+                            templatesRestored++
+                        } else {
+                            notesRestored++
+                        }
+                    }
+                }
+            } else {
+                // Convert legacy backup into vault files
+                val kothaDir = vaultManager.getOrCreateDirRecursive(vaultDoc, ".kothapad")
+                    ?: throw IllegalStateException("Cannot create .kothapad directory")
+                val templatesDir = vaultManager.getOrCreateDirRecursive(vaultDoc, "Templates")
+                    ?: throw IllegalStateException("Cannot create Templates directory")
+
+                // Write templates
+                for (stamp in backupData.stamps) {
+                    val cleanLabel = VaultManager.sanitizeFilename(stamp.label.ifBlank { "Template" })
+                    vaultManager.writeTextAtomic(templatesDir, "$cleanLabel.md", stamp.templateText, "text/markdown")
+                    templatesRestored++
+                }
+
+                // Write notes and metadata
+                val notesMetaObj = JSONObject()
+                for (note in backupData.notes) {
+                    val folderName = if (note.folder.isBlank()) "General" else note.folder.trim()
+                    val targetDir = vaultManager.getOrCreateDirRecursive(vaultDoc, folderName) ?: vaultDoc
+                    val cleanTitle = VaultManager.sanitizeFilename(note.title.ifBlank { "Untitled Note" })
+                    val uniqueFileName = vaultManager.resolveDuplicateFileName(targetDir, cleanTitle, ".md")
+
+                    vaultManager.writeTextAtomic(targetDir, uniqueFileName, note.content, "text/markdown")
+                    val relPath = if (folderName.isEmpty() || folderName == ".") uniqueFileName else "$folderName/$uniqueFileName"
+
+                    val meta = JSONObject().apply {
+                        put("isPinned", note.isPinned)
+                        put("isArchived", note.isArchived)
+                        put("isDeleted", note.isDeleted)
+                        if (note.deletedAt != null) put("deletedAt", note.deletedAt)
+                        put("createdAt", note.createdAt)
+                        put("updatedAt", note.updatedAt)
+                        if (note.languageCode != null) put("languageCode", note.languageCode)
+                        if (note.highlightColor != null) put("highlightColor", note.highlightColor)
+                        put("fontSizeModifier", note.fontSizeModifier.toDouble())
+                        put("tags", note.tags)
+                        put("sessionDurationSec", note.sessionDurationSec)
+                    }
+                    notesMetaObj.put(relPath, meta)
+                    notesRestored++
+                }
+
+                // Write .kothapad/notes-meta.json
+                val rootMeta = JSONObject().apply {
+                    put("schemaVersion", 1)
+                    put("notes", notesMetaObj)
+                }
+                vaultManager.writeTextAtomic(kothaDir, "notes-meta.json", rootMeta.toString(2), "application/json")
+
+                // Write .kothapad/settings.json
+                vaultManager.writeTextAtomic(kothaDir, "settings.json", backupData.settings.toString(2), "application/json")
+
+                // Write .kothapad/workspace.json
+                val wsObj = JSONObject().apply {
+                    put("schemaVersion", 1)
+                    put("lastActiveFolder", "General")
+                    put("expandedFolders", JSONArray().apply { put("General"); put("Templates") })
+                }
+                vaultManager.writeTextAtomic(kothaDir, "workspace.json", wsObj.toString(2), "application/json")
+            }
+
+            BackupSummary(
+                notesCount = notesRestored,
+                templatesCount = templatesRestored
+            )
+        } catch (restoreException: Exception) {
+            performRollback()
+            throw Exception("Restoration failed midway: ${restoreException.message}. Previous vault data was safely rolled back.")
+        }
+    }
+
+    private suspend fun restoreLegacyRoomBackup(
         noteRepository: NoteRepository,
         stampRepository: StampRepository,
         spokenCommandRepository: SpokenCommandRepository,
         preferencesManager: PreferencesManager,
         backupData: ParsedBackupData
     ): BackupSummary = withContext(Dispatchers.IO) {
-        // Snapshot existing data in memory for safe rollback
         val previousNotes = noteRepository.getAllNotesList()
         val previousStamps = stampRepository.getAllStampsList()
         val previousCommands = spokenCommandRepository.getAllCommandsList()
         val previousSettings = preferencesManager.getAllPreferencesForBackup()
 
         try {
-            // Step 1: Replace Notes
             noteRepository.deleteAllNotes()
             if (backupData.notes.isNotEmpty()) {
                 noteRepository.insertAll(backupData.notes)
             }
 
-            // Step 2: Replace Templates (Stamps)
             stampRepository.deleteAllStamps()
             if (backupData.stamps.isNotEmpty()) {
                 stampRepository.insertAll(backupData.stamps)
             }
 
-            // Step 3: Replace Spoken Commands (if present in backup)
             if (backupData.commands.isNotEmpty()) {
                 spokenCommandRepository.deleteAllCommands()
                 spokenCommandRepository.insertAll(backupData.commands)
             }
 
-            // Step 4: Replace Settings
             val skippedSettings = preferencesManager.restoreAllPreferencesFromBackup(backupData.settings)
 
             BackupSummary(
@@ -279,27 +553,21 @@ object BackupManager {
                 skippedCount = skippedSettings
             )
         } catch (restoreException: Exception) {
-            // Rollback immediately to prior state
             try {
                 noteRepository.deleteAllNotes()
                 if (previousNotes.isNotEmpty()) {
                     noteRepository.insertAll(previousNotes)
                 }
-
                 stampRepository.deleteAllStamps()
                 if (previousStamps.isNotEmpty()) {
                     stampRepository.insertAll(previousStamps)
                 }
-
                 if (previousCommands.isNotEmpty()) {
                     spokenCommandRepository.deleteAllCommands()
                     spokenCommandRepository.insertAll(previousCommands)
                 }
-
                 preferencesManager.restoreAllPreferencesFromBackup(previousSettings)
-            } catch (_: Exception) {
-                // Secondary error ignored
-            }
+            } catch (_: Exception) {}
 
             throw Exception("Restoration failed midway: ${restoreException.message}. Previous data was safely rolled back.")
         }
@@ -422,15 +690,6 @@ object BackupManager {
         return when (value) {
             is Number -> value.toFloat()
             is String -> value.toFloatOrNull() ?: default
-            else -> default
-        }
-    }
-
-    fun safeToDouble(value: Any?, default: Double = 0.0): Double {
-        if (value == null || value == JSONObject.NULL) return default
-        return when (value) {
-            is Number -> value.toDouble()
-            is String -> value.toDoubleOrNull() ?: default
             else -> default
         }
     }
