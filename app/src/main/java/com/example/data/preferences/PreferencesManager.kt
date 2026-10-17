@@ -141,6 +141,7 @@ class PreferencesManager(private val context: Context) {
         val KEY_NEW_NOTE_NAMING_RULE = stringPreferencesKey("new_note_naming_rule")
         val KEY_AFTER_CREATING_NOTE = stringPreferencesKey("after_creating_note")
         val KEY_LAST_ACTIVE_FOLDER = stringPreferencesKey("last_active_folder")
+        val KEY_NOTE_SORT_OPTION = stringPreferencesKey("note_sort_option")
         val KEY_OLD_DATA_MIGRATED = booleanPreferencesKey("old_data_migrated_to_vault")
 
         // Floating Controls Layout ("Side Rail") Keys
@@ -234,6 +235,7 @@ class PreferencesManager(private val context: Context) {
             KEY_NEW_NOTE_NAMING_RULE.name to PrefType.STRING,
             KEY_AFTER_CREATING_NOTE.name to PrefType.STRING,
             KEY_LAST_ACTIVE_FOLDER.name to PrefType.STRING,
+            KEY_NOTE_SORT_OPTION.name to PrefType.STRING,
             "md_enabled" to PrefType.BOOLEAN,
             "md_headings" to PrefType.BOOLEAN,
             "md_bold_italic" to PrefType.BOOLEAN,
@@ -451,7 +453,17 @@ class PreferencesManager(private val context: Context) {
     val keyboardLayoutVersion: Flow<Int> = context.dataStore.data.map { it[KEY_KEYBOARD_LAYOUT_VERSION] ?: 1 }
     val expandedFolders: Flow<Set<String>> = context.dataStore.data.map { it[KEY_EXPANDED_FOLDERS] ?: setOf("General", "Templates") }
     val customFolders: Flow<Set<String>> = context.dataStore.data.map { it[KEY_CUSTOM_FOLDERS] ?: emptySet() }
+    val noteSortOption: Flow<String> = context.dataStore.data.map { it[KEY_NOTE_SORT_OPTION] ?: "MODIFIED_DESC" }
     val isOldDataMigrated: Flow<Boolean> = context.dataStore.data.map { it[KEY_OLD_DATA_MIGRATED] ?: false }
+
+    suspend fun setNoteSortOption(option: String) {
+        context.dataStore.edit { it[KEY_NOTE_SORT_OPTION] = option }
+        syncPrefs.edit().putString("note_sort_option", option).apply()
+    }
+
+    fun getNoteSortOptionSync(): String {
+        return syncPrefs.getString("note_sort_option", "MODIFIED_DESC") ?: "MODIFIED_DESC"
+    }
 
     suspend fun setOldDataMigrated(migrated: Boolean) {
         context.dataStore.edit { it[KEY_OLD_DATA_MIGRATED] = migrated }

@@ -197,6 +197,14 @@ class EditorViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, preferencesManager.getExpandedFoldersSync())
     val customFolders: StateFlow<Set<String>> = preferencesManager.customFolders
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+    val noteSortOption: StateFlow<String> = preferencesManager.noteSortOption
+        .stateIn(viewModelScope, SharingStarted.Eagerly, preferencesManager.getNoteSortOptionSync())
+
+    fun setNoteSortOption(option: String) {
+        viewModelScope.launch {
+            preferencesManager.setNoteSortOption(option)
+        }
+    }
 
     // Custom Theme Colors
     val customPrimaryColor: StateFlow<Int> = preferencesManager.customPrimaryColor
@@ -480,8 +488,15 @@ class EditorViewModel(
         if (!preserveReadingMode) {
             _isReadingMode.value = false
         }
-        pauseSessionTimerAndPersist()
-        flushAutoSave()
+        val current = _currentNote.value
+        if (current != null && current.id != note.id && !current.isDeleted && !current.isArchived) {
+            pauseSessionTimerAndPersist()
+            flushAutoSave()
+        } else {
+            sessionDurationJob?.cancel()
+            sessionDurationJob = null
+            autoSaveJob?.cancel()
+        }
         vaultNoteRepository.currentlyOpenNoteId = note.id
         _currentNote.value = note
         _textFieldValue.value = TextFieldValue(
@@ -518,6 +533,7 @@ class EditorViewModel(
             while (true) {
                 delay(1000L)
                 val current = _currentNote.value ?: break
+                if (current.isDeleted || current.isArchived) break
                 val updated = current.copy(sessionDurationSec = current.sessionDurationSec + 1L)
                 _currentNote.value = updated
 
@@ -525,7 +541,10 @@ class EditorViewModel(
                 if (now - lastPeriodicDbFlushTime >= 10000L) {
                     lastPeriodicDbFlushTime = now
                     viewModelScope.launch(Dispatchers.IO) {
-                        noteRepository.update(updated)
+                        val c = _currentNote.value
+                        if (c != null && !c.isDeleted && !c.isArchived && c.id == updated.id) {
+                            noteRepository.update(updated)
+                        }
                     }
                 }
             }
@@ -536,6 +555,7 @@ class EditorViewModel(
         sessionDurationJob?.cancel()
         sessionDurationJob = null
         val note = _currentNote.value ?: return
+        if (note.isDeleted || note.isArchived) return
         viewModelScope.launch(Dispatchers.IO) {
             noteRepository.update(note)
         }
@@ -554,6 +574,7 @@ class EditorViewModel(
         autoSaveJob = viewModelScope.launch(Dispatchers.IO) {
             delay(800) // ~800 ms after typing stops
             val note = _currentNote.value ?: return@launch
+            if (note.isDeleted || note.isArchived) return@launch
             val updated = note.copy(
                 content = newContent,
                 updatedAt = System.currentTimeMillis()
@@ -566,6 +587,7 @@ class EditorViewModel(
     fun flushAutoSave() {
         autoSaveJob?.cancel()
         val note = _currentNote.value ?: return
+        if (note.isDeleted || note.isArchived) return
         val currentText = _textFieldValue.value.text
         (getApplication<Application>() as KothaPadApp).applicationScope.launch(Dispatchers.IO + NonCancellable) {
             try {
@@ -575,10 +597,12 @@ class EditorViewModel(
                 } else {
                     note
                 }
-                noteRepository.update(toSave)
-                withContext(Dispatchers.Main) {
-                    if (_currentNote.value?.id == toSave.id) {
-                        _currentNote.value = toSave
+                if (!toSave.isDeleted && !toSave.isArchived) {
+                    noteRepository.update(toSave)
+                    withContext(Dispatchers.Main) {
+                        if (_currentNote.value?.id == toSave.id) {
+                            _currentNote.value = toSave
+                        }
                     }
                 }
             } catch (_: Exception) {
@@ -1460,10 +1484,17 @@ class EditorViewModel(
     // Soft Delete (Trash)
     fun trashNote(note: Note) {
         lastDeletedNote = note
+        autoSaveJob?.cancel()
+        val isCurrentNote = _currentNote.value?.id == note.id
+        if (isCurrentNote) {
+            sessionDurationJob?.cancel()
+            sessionDurationJob = null
+            _currentNote.value = null
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val updated = note.copy(isDeleted = true, deletedAt = System.currentTimeMillis(), isPinned = false)
             noteRepository.update(updated)
-            if (_currentNote.value?.id == note.id) {
+            if (isCurrentNote) {
                 val remaining = noteRepository.getLatestActiveNote()
                 withContext(Dispatchers.Main) {
                     if (remaining != null) {
@@ -1477,11 +1508,19 @@ class EditorViewModel(
     }
 
     fun trashNotes(notes: List<Note>) {
+        autoSaveJob?.cancel()
+        val deletedIds = notes.map { it.id }.toSet()
+        val isCurrentDeleted = _currentNote.value?.let { deletedIds.contains(it.id) } == true
+        if (isCurrentDeleted) {
+            sessionDurationJob?.cancel()
+            sessionDurationJob = null
+            _currentNote.value = null
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             val updated = notes.map { it.copy(isDeleted = true, deletedAt = now, isPinned = false) }
             noteRepository.updateAll(updated)
-            if (notes.any { it.id == _currentNote.value?.id }) {
+            if (isCurrentDeleted) {
                 val remaining = noteRepository.getLatestActiveNote()
                 withContext(Dispatchers.Main) {
                     if (remaining != null) {
@@ -1511,14 +1550,41 @@ class EditorViewModel(
 
     // Permanent Delete
     fun permanentlyDeleteNote(note: Note) {
+        autoSaveJob?.cancel()
+        val isCurrent = _currentNote.value?.id == note.id
+        if (isCurrent) {
+            sessionDurationJob?.cancel()
+            sessionDurationJob = null
+            _currentNote.value = null
+        }
         viewModelScope.launch(Dispatchers.IO) {
             noteRepository.delete(note)
+            if (isCurrent) {
+                val remaining = noteRepository.getLatestActiveNote()
+                withContext(Dispatchers.Main) {
+                    if (remaining != null) loadNote(remaining) else createNewNote()
+                }
+            }
         }
     }
 
     fun permanentlyDeleteNotes(notes: List<Note>) {
+        autoSaveJob?.cancel()
+        val deletedIds = notes.map { it.id }.toSet()
+        val isCurrent = _currentNote.value?.let { deletedIds.contains(it.id) } == true
+        if (isCurrent) {
+            sessionDurationJob?.cancel()
+            sessionDurationJob = null
+            _currentNote.value = null
+        }
         viewModelScope.launch(Dispatchers.IO) {
             noteRepository.deleteAll(notes)
+            if (isCurrent) {
+                val remaining = noteRepository.getLatestActiveNote()
+                withContext(Dispatchers.Main) {
+                    if (remaining != null) loadNote(remaining) else createNewNote()
+                }
+            }
         }
     }
 
@@ -1530,10 +1596,18 @@ class EditorViewModel(
 
     // Archive / Unarchive
     fun toggleArchiveNote(note: Note) {
+        val willArchive = !note.isArchived
+        val isCurrent = _currentNote.value?.id == note.id
+        if (willArchive && isCurrent) {
+            autoSaveJob?.cancel()
+            sessionDurationJob?.cancel()
+            sessionDurationJob = null
+            _currentNote.value = null
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = note.copy(isArchived = !note.isArchived)
+            val updated = note.copy(isArchived = willArchive)
             noteRepository.update(updated)
-            if (updated.isArchived && _currentNote.value?.id == note.id) {
+            if (willArchive && isCurrent) {
                 val remaining = noteRepository.getLatestActiveNote()
                 withContext(Dispatchers.Main) {
                     if (remaining != null) loadNote(remaining) else createNewNote()
@@ -1543,10 +1617,18 @@ class EditorViewModel(
     }
 
     fun archiveNotes(notes: List<Note>, archive: Boolean) {
+        val noteIds = notes.map { it.id }.toSet()
+        val isCurrentArchived = archive && _currentNote.value?.let { noteIds.contains(it.id) } == true
+        if (isCurrentArchived) {
+            autoSaveJob?.cancel()
+            sessionDurationJob?.cancel()
+            sessionDurationJob = null
+            _currentNote.value = null
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val updated = notes.map { it.copy(isArchived = archive) }
             noteRepository.updateAll(updated)
-            if (archive && notes.any { it.id == _currentNote.value?.id }) {
+            if (isCurrentArchived) {
                 val remaining = noteRepository.getLatestActiveNote()
                 withContext(Dispatchers.Main) {
                     if (remaining != null) loadNote(remaining) else createNewNote()
