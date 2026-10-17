@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.Folder
@@ -305,6 +306,13 @@ fun SettingsScreen(
     onExportBackup: (Uri, (Result<BackupSummary>) -> Unit) -> Unit = { _, _ -> },
     onValidateBackup: (Uri, (Result<ParsedBackupData>) -> Unit) -> Unit = { _, _ -> },
     onRestoreBackup: (ParsedBackupData, (Result<BackupSummary>) -> Unit) -> Unit = { _, _ -> },
+    // Vault Section Callbacks & State
+    vaultState: com.example.data.vault.VaultState = com.example.data.vault.VaultState(),
+    onSwitchVault: (com.example.data.vault.VaultInfo) -> Unit = {},
+    onOpenVaultUri: (Uri) -> Unit = {},
+    onCreateNewVault: (Uri, String) -> Unit = { _, _ -> },
+    onRemoveRecentVault: (String) -> Unit = {},
+    onCloseVault: () -> Unit = {},
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -324,6 +332,32 @@ fun SettingsScreen(
     var validationError by remember { mutableStateOf<String?>(null) }
     var pendingRestoreData by remember { mutableStateOf<ParsedBackupData?>(null) }
     var showFinishSetupDialog by remember { mutableStateOf(false) }
+
+    // Vault Dialog states and launchers
+    var showSwitchVaultDialog by remember { mutableStateOf(false) }
+    var showOpenOrNewVaultDialog by remember { mutableStateOf(false) }
+    var showRecentVaultsDialog by remember { mutableStateOf(false) }
+    var showCreateVaultNameDialog by remember { mutableStateOf(false) }
+    var selectedParentUri by remember { mutableStateOf<Uri?>(null) }
+    var newVaultNameInput by remember { mutableStateOf("KothaVault") }
+
+    val openFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            onOpenVaultUri(uri)
+        }
+    }
+
+    val createParentFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            selectedParentUri = uri
+            newVaultNameInput = "KothaVault"
+            showCreateVaultNameDialog = true
+        }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
@@ -387,9 +421,73 @@ fun SettingsScreen(
         micButtonSize, micButtonShape, micButtonColor, micButtonPosition, micButtonOffsetY,
         statusChipStyle, uiDensity, cornerRadiusDp, dictationAnimationStyle, hapticsLevel,
         pipelineSpacing, pipelineAutoCap, pipelineCommands, needsDndPermission,
-        floatingLayoutSettings
+        floatingLayoutSettings, vaultState
     ) {
         listOf(
+            // Vault Section
+            SettingHeadlineSection(
+                id = "vault_section",
+                title = "Vault",
+                subtitle = "Active folder where all settings and workspace configurations are stored",
+                icon = Icons.Outlined.Folder,
+                items = buildList {
+                    val curr = vaultState.currentVault
+                    val currentPath = if (curr != null) {
+                        try {
+                            Uri.decode(curr.uriString).substringAfterLast("/tree/").replace("%2F", "/").replace(":", " > ")
+                        } catch (_: Exception) {
+                            curr.uriString
+                        }
+                    } else "None"
+
+                    add(
+                        SettingItem.InfoText(
+                            id = "current_vault_info",
+                            title = curr?.name ?: "No vault selected",
+                            description = "Location: $currentPath\nStatus: ${if (vaultState.isAccessible) "Active & Synced (.kothapad/settings.json)" else "Inaccessible"}",
+                            badge = if (vaultState.isAccessible) "Active" else "Inaccessible"
+                        )
+                    )
+
+                    add(
+                        SettingItem.ButtonRow(
+                            id = "vault_actions_row",
+                            title = "Vault Controls",
+                            subtitle = "Switch, open, or close the workspace vault",
+                            buttons = buildList {
+                                add(
+                                    SettingButtonOption(
+                                        label = "Switch Vault",
+                                        onClick = { showSwitchVaultDialog = true }
+                                    )
+                                )
+                                add(
+                                    SettingButtonOption(
+                                        label = "Open / New Vault",
+                                        onClick = { showOpenOrNewVaultDialog = true }
+                                    )
+                                )
+                                if (vaultState.recentVaults.isNotEmpty()) {
+                                    add(
+                                        SettingButtonOption(
+                                            label = "Recent Vaults (${vaultState.recentVaults.size})",
+                                            onClick = { showRecentVaultsDialog = true }
+                                        )
+                                    )
+                                }
+                                add(
+                                    SettingButtonOption(
+                                        label = "Close Vault",
+                                        isDestructive = true,
+                                        onClick = onCloseVault
+                                    )
+                                )
+                            }
+                        )
+                    )
+                }
+            ),
+
             // 0. Notes Manager Settings Entry Section
             SettingHeadlineSection(
                 id = "notes_manager_settings_entry",
@@ -1497,6 +1595,221 @@ fun SettingsScreen(
     if (showFinishSetupDialog) {
         FinishSetupDialog(
             onDismiss = { showFinishSetupDialog = false }
+        )
+    }
+
+    // Switch Vault Dialog
+    if (showSwitchVaultDialog) {
+        AlertDialog(
+            onDismissRequest = { showSwitchVaultDialog = false },
+            title = { Text("Switch Vault") },
+            text = {
+                val otherVaults = vaultState.recentVaults.filter { it.uriString != vaultState.currentVault?.uriString }
+                if (otherVaults.isEmpty()) {
+                    Text("No other vaults recorded. Open another folder or create a new vault to switch.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                        items(otherVaults) { vault ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = AmoledSurface,
+                                border = BorderStroke(1.dp, AmoledBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable {
+                                        showSwitchVaultDialog = false
+                                        onSwitchVault(vault)
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Outlined.Folder, contentDescription = null, tint = SaffronPrimary, modifier = Modifier.size(24.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(vault.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            Uri.decode(vault.uriString).substringAfterLast("/tree/").replace("%2F", "/"),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSwitchVaultDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // Open or New Vault Choice Dialog
+    if (showOpenOrNewVaultDialog) {
+        AlertDialog(
+            onDismissRequest = { showOpenOrNewVaultDialog = false },
+            title = { Text("Open or Create Vault") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Select how you want to configure your vault:", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(
+                        onClick = {
+                            showOpenOrNewVaultDialog = false
+                            openFolderLauncher.launch(null)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Outlined.Folder, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Open Existing Folder")
+                    }
+                    Button(
+                        onClick = {
+                            showOpenOrNewVaultDialog = false
+                            createParentFolderLauncher.launch(null)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = SaffronPrimary),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Outlined.Folder, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Create New Vault Folder")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showOpenOrNewVaultDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Recent Vaults Management Dialog
+    if (showRecentVaultsDialog) {
+        AlertDialog(
+            onDismissRequest = { showRecentVaultsDialog = false },
+            title = { Text("Recent Vaults") },
+            text = {
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(vaultState.recentVaults) { vault ->
+                        val isCurrent = vault.uriString == vaultState.currentVault?.uriString
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = AmoledSurface,
+                            border = BorderStroke(1.dp, if (isCurrent) SaffronPrimary else AmoledBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable {
+                                    if (!isCurrent) {
+                                        showRecentVaultsDialog = false
+                                        onSwitchVault(vault)
+                                    }
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Outlined.Folder, contentDescription = null, tint = SaffronPrimary, modifier = Modifier.size(22.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            vault.name + if (isCurrent) " (Active)" else "",
+                                            fontWeight = FontWeight.SemiBold,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
+                                            Uri.decode(vault.uriString).substringAfterLast("/tree/").replace("%2F", "/"),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                                if (!isCurrent) {
+                                    IconButton(
+                                        onClick = { onRemoveRecentVault(vault.uriString) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Remove",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRecentVaultsDialog = false }) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+
+    // Create New Vault Name Dialog
+    if (showCreateVaultNameDialog && selectedParentUri != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showCreateVaultNameDialog = false
+                selectedParentUri = null
+            },
+            title = { Text("New Vault Name") },
+            text = {
+                Column {
+                    Text("Enter a folder name for the new vault:", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newVaultNameInput,
+                        onValueChange = { newVaultNameInput = it },
+                        singleLine = true,
+                        label = { Text("Vault Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val name = newVaultNameInput.trim().ifEmpty { "KothaVault" }
+                        showCreateVaultNameDialog = false
+                        val parent = selectedParentUri
+                        selectedParentUri = null
+                        if (parent != null) {
+                            onCreateNewVault(parent, name)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SaffronPrimary)
+                ) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showCreateVaultNameDialog = false
+                        selectedParentUri = null
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 }

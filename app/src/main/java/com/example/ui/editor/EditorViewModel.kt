@@ -50,8 +50,14 @@ class EditorViewModel(
     private val stampRepository: StampRepository,
     private val spokenCommandRepository: SpokenCommandRepository,
     private val preferencesManager: PreferencesManager,
-    private val speechSupervisor: SpeechSupervisor
+    private val speechSupervisor: SpeechSupervisor,
+    val vaultManager: com.example.data.vault.VaultManager = (application as KothaPadApp).vaultManager,
+    val settingsRepository: com.example.data.vault.SettingsRepository = (application as KothaPadApp).settingsRepository
 ) : AndroidViewModel(application) {
+
+    // Vault State
+    val vaultState: StateFlow<com.example.data.vault.VaultState> = vaultManager.vaultState
+    val showFinishSetupDialog = MutableStateFlow(false)
 
     // Notes Data
     val allNotes: StateFlow<List<Note>> = noteRepository.allNotes
@@ -101,6 +107,7 @@ class EditorViewModel(
             return
         }
         _isReadingMode.value = enabled
+        settingsRepository.updateSettings { it.copy(readingModeEnabled = enabled) }
     }
 
     fun toggleReadingMode() {
@@ -334,6 +341,18 @@ class EditorViewModel(
             }
         }
 
+        // Load initial vault settings if already selected and accessible
+        viewModelScope.launch {
+            if (vaultManager.vaultState.value.isAccessible) {
+                val doc = vaultManager.getCurrentVaultDocumentFile()
+                if (doc != null) {
+                    val loaded = settingsRepository.loadVaultSettings(doc, preferencesManager)
+                    _isReadingMode.value = loaded.readingModeEnabled
+                    checkMicrophonePermission()
+                }
+            }
+        }
+
         // Keep session timing synchronized with note manager & screens
         viewModelScope.launch {
             isNoteManagerOpen.collect {
@@ -454,6 +473,9 @@ class EditorViewModel(
     }
 
     fun flushAutoSave() {
+        viewModelScope.launch(Dispatchers.IO) {
+            settingsRepository.flushSaves()
+        }
         val note = _currentNote.value ?: return
         val currentText = _textFieldValue.value.text
         viewModelScope.launch(Dispatchers.IO) {
@@ -463,6 +485,97 @@ class EditorViewModel(
                 note
             }
             noteRepository.update(toSave)
+        }
+    }
+
+    // =========================================================================
+    // Vault Management Actions
+    // =========================================================================
+
+    fun openVault(uri: Uri, onResult: ((Boolean, String?) -> Unit)? = null) {
+        viewModelScope.launch {
+            val result = vaultManager.openVaultFromUri(uri)
+            result.fold(
+                onSuccess = {
+                    val vaultDoc = vaultManager.getCurrentVaultDocumentFile()
+                    if (vaultDoc != null) {
+                        val loaded = settingsRepository.loadVaultSettings(vaultDoc, preferencesManager)
+                        _isReadingMode.value = loaded.readingModeEnabled
+                        checkMicrophonePermission()
+                    }
+                    onResult?.invoke(true, null)
+                },
+                onFailure = { err ->
+                    onResult?.invoke(false, err.message ?: "Failed to open vault")
+                }
+            )
+        }
+    }
+
+    fun createNewVault(parentUri: Uri, vaultName: String, onResult: ((Boolean, String?) -> Unit)? = null) {
+        viewModelScope.launch {
+            val result = vaultManager.createNewVaultInParent(parentUri, vaultName)
+            result.fold(
+                onSuccess = {
+                    val vaultDoc = vaultManager.getCurrentVaultDocumentFile()
+                    if (vaultDoc != null) {
+                        val loaded = settingsRepository.loadVaultSettings(vaultDoc, preferencesManager)
+                        _isReadingMode.value = loaded.readingModeEnabled
+                        checkMicrophonePermission()
+                    }
+                    onResult?.invoke(true, null)
+                },
+                onFailure = { err ->
+                    onResult?.invoke(false, err.message ?: "Failed to create vault")
+                }
+            )
+        }
+    }
+
+    fun switchVault(vaultInfo: com.example.data.vault.VaultInfo, onResult: ((Boolean, String?) -> Unit)? = null) {
+        viewModelScope.launch {
+            settingsRepository.flushSaves()
+            val uri = Uri.parse(vaultInfo.uriString)
+            val result = vaultManager.openVaultFromUri(uri, vaultInfo.name)
+            result.fold(
+                onSuccess = {
+                    val vaultDoc = vaultManager.getCurrentVaultDocumentFile()
+                    if (vaultDoc != null) {
+                        val loaded = settingsRepository.loadVaultSettings(vaultDoc, preferencesManager)
+                        _isReadingMode.value = loaded.readingModeEnabled
+                        checkMicrophonePermission()
+                    }
+                    onResult?.invoke(true, null)
+                },
+                onFailure = { err ->
+                    onResult?.invoke(false, err.message ?: "Failed to switch vault")
+                }
+            )
+        }
+    }
+
+    fun closeCurrentVault() {
+        viewModelScope.launch {
+            settingsRepository.flushSaves()
+            vaultManager.closeCurrentVault()
+        }
+    }
+
+    fun removeRecentVault(uriString: String) {
+        vaultManager.removeFromRecentVaults(uriString)
+    }
+
+    fun onDismissInaccessibleVaultDialog() {
+        vaultManager.closeCurrentVault()
+    }
+
+    fun checkMicrophonePermission() {
+        val hasMic = androidx.core.content.ContextCompat.checkSelfPermission(
+            getApplication(),
+            android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!hasMic) {
+            showFinishSetupDialog.value = true
         }
     }
 

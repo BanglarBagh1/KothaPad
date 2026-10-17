@@ -16,7 +16,11 @@ class KothaPadApp : Application() {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val database by lazy { AppDatabase.getInstance(this, applicationScope) }
+    val vaultManager by lazy { com.example.data.vault.VaultManager(this) }
     val preferencesManager by lazy { PreferencesManager(this) }
+    val settingsRepository by lazy {
+        com.example.data.vault.SettingsRepository(this, vaultManager, applicationScope)
+    }
 
     val noteRepository by lazy { NoteRepository(database.noteDao()) }
     val stampRepository by lazy { StampRepository(database.stampDao()) }
@@ -29,6 +33,7 @@ class KothaPadApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        preferencesManager.attachSettingsRepository(settingsRepository)
         speechSupervisor.restoreCrashSafetyMute()
     }
 }

@@ -28,6 +28,16 @@ class PreferencesManager(private val context: Context) {
 
     private val syncPrefs = context.getSharedPreferences("kothapad_sync_prefs", Context.MODE_PRIVATE)
 
+    var settingsRepository: com.example.data.vault.SettingsRepository? = null
+
+    fun attachSettingsRepository(repo: com.example.data.vault.SettingsRepository) {
+        this.settingsRepository = repo
+    }
+
+    private inline fun notifyRepo(crossinline transform: (com.example.data.vault.AppSettings) -> com.example.data.vault.AppSettings) {
+        settingsRepository?.updateSettings { transform(it) }
+    }
+
     enum class PrefType {
         BOOLEAN, INT, LONG, FLOAT, DOUBLE, STRING, STRING_SET
     }
@@ -442,11 +452,26 @@ class PreferencesManager(private val context: Context) {
     val customFolders: Flow<Set<String>> = context.dataStore.data.map { it[KEY_CUSTOM_FOLDERS] ?: emptySet() }
 
     // Update helpers
-    suspend fun setDictationMode(mode: String) = context.dataStore.edit { it[KEY_DICTATION_MODE] = mode }
-    suspend fun setTimedMinutes(minutes: Int) = context.dataStore.edit { it[KEY_TIMED_MINUTES] = minutes }
-    suspend fun setPauseToleranceSeconds(seconds: Int) = context.dataStore.edit { it[KEY_PAUSE_TOLERANCE_SECONDS] = seconds }
-    suspend fun setIdleAutoStopMinutes(minutes: Int) = context.dataStore.edit { it[KEY_IDLE_AUTO_STOP_MINUTES] = minutes }
-    suspend fun setMuteBeepMethod(method: String) = context.dataStore.edit { it[KEY_MUTE_BEEP_METHOD] = method }
+    suspend fun setDictationMode(mode: String) {
+        context.dataStore.edit { it[KEY_DICTATION_MODE] = mode }
+        notifyRepo { it.copy(dictationMode = mode) }
+    }
+    suspend fun setTimedMinutes(minutes: Int) {
+        context.dataStore.edit { it[KEY_TIMED_MINUTES] = minutes }
+        notifyRepo { it.copy(timedMinutes = minutes) }
+    }
+    suspend fun setPauseToleranceSeconds(seconds: Int) {
+        context.dataStore.edit { it[KEY_PAUSE_TOLERANCE_SECONDS] = seconds }
+        notifyRepo { it.copy(pauseToleranceSeconds = seconds) }
+    }
+    suspend fun setIdleAutoStopMinutes(minutes: Int) {
+        context.dataStore.edit { it[KEY_IDLE_AUTO_STOP_MINUTES] = minutes }
+        notifyRepo { it.copy(idleAutoStopMinutes = minutes) }
+    }
+    suspend fun setMuteBeepMethod(method: String) {
+        context.dataStore.edit { it[KEY_MUTE_BEEP_METHOD] = method }
+        notifyRepo { it.copy(muteBeepMethod = method) }
+    }
 
     suspend fun saveMutedRecord(musicVol: Int, systemVol: Int, ringerMode: Int) = context.dataStore.edit {
         it[KEY_MUTED_BY_APP] = true
@@ -462,21 +487,57 @@ class PreferencesManager(private val context: Context) {
         it.remove(KEY_SAVED_RINGER_MODE)
     }
 
-    suspend fun setInsertionMode(mode: String) = context.dataStore.edit { it[KEY_INSERTION_MODE] = mode }
-    suspend fun setOfflinePreferred(offline: Boolean) = context.dataStore.edit { it[KEY_OFFLINE_PREFERRED] = offline }
-    suspend fun setKeepScreenOn(keep: Boolean) = context.dataStore.edit { it[KEY_KEEP_SCREEN_ON] = keep }
+    suspend fun setInsertionMode(mode: String) {
+        context.dataStore.edit { it[KEY_INSERTION_MODE] = mode }
+        notifyRepo { it.copy(insertionMode = mode) }
+    }
+    suspend fun setOfflinePreferred(offline: Boolean) {
+        context.dataStore.edit { it[KEY_OFFLINE_PREFERRED] = offline }
+        notifyRepo { it.copy(offlinePreferred = offline) }
+    }
+    suspend fun setKeepScreenOn(keep: Boolean) {
+        context.dataStore.edit { it[KEY_KEEP_SCREEN_ON] = keep }
+        notifyRepo { it.copy(keepScreenOn = keep) }
+    }
 
-    suspend fun setDefaultLanguage(lang: String) = context.dataStore.edit { it[KEY_DEFAULT_LANGUAGE] = lang }
-    suspend fun setFavoriteLanguages(langs: Set<String>) = context.dataStore.edit { it[KEY_FAVORITE_LANGUAGES] = langs }
+    suspend fun setDefaultLanguage(lang: String) {
+        context.dataStore.edit { it[KEY_DEFAULT_LANGUAGE] = lang }
+        notifyRepo { it.copy(defaultLanguage = lang) }
+    }
+    suspend fun setFavoriteLanguages(langs: Set<String>) {
+        context.dataStore.edit { it[KEY_FAVORITE_LANGUAGES] = langs }
+        notifyRepo { it.copy(favoriteLanguages = langs) }
+    }
 
-    suspend fun setAppTheme(theme: String) = context.dataStore.edit { it[KEY_APP_THEME] = theme }
-    suspend fun setEditorFontSize(size: Float) = context.dataStore.edit { it[KEY_EDITOR_FONT_SIZE] = size }
-    suspend fun setEditorLineSpacing(spacing: Float) = context.dataStore.edit { it[KEY_EDITOR_LINE_SPACING] = spacing }
-    suspend fun setEditorFontFamily(family: String) = context.dataStore.edit { it[KEY_EDITOR_FONT_FAMILY] = family }
+    suspend fun setAppTheme(theme: String) {
+        context.dataStore.edit { it[KEY_APP_THEME] = theme }
+        notifyRepo { it.copy(appTheme = theme) }
+    }
+    suspend fun setEditorFontSize(size: Float) {
+        context.dataStore.edit { it[KEY_EDITOR_FONT_SIZE] = size }
+        notifyRepo { it.copy(editorFontSize = size) }
+    }
+    suspend fun setEditorLineSpacing(spacing: Float) {
+        context.dataStore.edit { it[KEY_EDITOR_LINE_SPACING] = spacing }
+        notifyRepo { it.copy(editorLineSpacing = spacing) }
+    }
+    suspend fun setEditorFontFamily(family: String) {
+        context.dataStore.edit { it[KEY_EDITOR_FONT_FAMILY] = family }
+        notifyRepo { it.copy(editorFontFamily = family) }
+    }
 
-    suspend fun setPipelineSpacing(enabled: Boolean) = context.dataStore.edit { it[KEY_PIPELINE_SPACING] = enabled }
-    suspend fun setPipelineAutoCap(enabled: Boolean) = context.dataStore.edit { it[KEY_PIPELINE_AUTOCAP] = enabled }
-    suspend fun setPipelineCommands(enabled: Boolean) = context.dataStore.edit { it[KEY_PIPELINE_COMMANDS] = enabled }
+    suspend fun setPipelineSpacing(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_PIPELINE_SPACING] = enabled }
+        notifyRepo { it.copy(pipelineSpacing = enabled) }
+    }
+    suspend fun setPipelineAutoCap(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_PIPELINE_AUTOCAP] = enabled }
+        notifyRepo { it.copy(pipelineAutoCap = enabled) }
+    }
+    suspend fun setPipelineCommands(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_PIPELINE_COMMANDS] = enabled }
+        notifyRepo { it.copy(pipelineCommands = enabled) }
+    }
 
     fun isOnboardingCompletedSync(): Boolean {
         if (syncPrefs.contains("onboarding_completed")) {
@@ -507,54 +568,155 @@ class PreferencesManager(private val context: Context) {
     suspend fun setLastOpenedNoteId(noteId: Long) {
         setLastOpenedNoteIdSync(noteId)
         context.dataStore.edit { it[KEY_LAST_OPENED_NOTE_ID] = noteId }
+        notifyRepo { it.copy(lastOpenedNoteId = noteId) }
     }
-    suspend fun setKeyboardType(type: String) = context.dataStore.edit { it[KEY_KEYBOARD_TYPE] = type }
-    suspend fun setShowWordCount(show: Boolean) = context.dataStore.edit { it[KEY_SHOW_WORD_COUNT] = show }
-
-    suspend fun setKeyboardLayoutJson(json: String?) = context.dataStore.edit {
-        if (json != null) it[KEY_KEYBOARD_LAYOUT_JSON] = json else it.remove(KEY_KEYBOARD_LAYOUT_JSON)
+    suspend fun setKeyboardType(type: String) {
+        context.dataStore.edit { it[KEY_KEYBOARD_TYPE] = type }
+        notifyRepo { it.copy(keyboardType = type) }
     }
-    suspend fun setKeyboardKeyHeightDp(dp: Int) = context.dataStore.edit { it[KEY_KEYBOARD_KEY_HEIGHT_DP] = dp }
-    suspend fun setKeyboardFontSizeSp(sp: Int) = context.dataStore.edit { it[KEY_KEYBOARD_FONT_SIZE_SP] = sp }
-    suspend fun setKeyboardHaptic(enabled: Boolean) = context.dataStore.edit { it[KEY_KEYBOARD_HAPTIC] = enabled }
-    suspend fun setKeyboardHoldBehavior(behavior: String) = context.dataStore.edit { it[KEY_KEYBOARD_HOLD_BEHAVIOR] = behavior }
-    suspend fun setKeyboardEditMode(editMode: Boolean) = context.dataStore.edit { it[KEY_KEYBOARD_EDIT_MODE] = editMode }
-    suspend fun setTrashAutoEmptyDays(days: Int) = context.dataStore.edit { it[KEY_TRASH_AUTO_EMPTY_DAYS] = days }
-    suspend fun setDefaultNewNoteFolder(folder: String) = context.dataStore.edit { it[KEY_DEFAULT_NEW_NOTE_FOLDER] = folder }
-
-    suspend fun setCustomThemeColors(primary: Int, bg: Int, surface: Int, text: Int, secondary: Int) = context.dataStore.edit {
-        it[KEY_CUSTOM_PRIMARY_COLOR] = primary
-        it[KEY_CUSTOM_BACKGROUND_COLOR] = bg
-        it[KEY_CUSTOM_SURFACE_COLOR] = surface
-        it[KEY_CUSTOM_TEXT_COLOR] = text
-        it[KEY_CUSTOM_SECONDARY_COLOR] = secondary
+    suspend fun setShowWordCount(show: Boolean) {
+        context.dataStore.edit { it[KEY_SHOW_WORD_COUNT] = show }
+        notifyRepo { it.copy(showWordCount = show) }
     }
 
-    suspend fun setCustomFont(name: String, path: String?) = context.dataStore.edit {
-        it[KEY_CUSTOM_FONT_NAME] = name
-        if (path != null) it[KEY_CUSTOM_FONT_PATH] = path else it.remove(KEY_CUSTOM_FONT_PATH)
+    suspend fun setKeyboardLayoutJson(json: String?) {
+        context.dataStore.edit {
+            if (json != null) it[KEY_KEYBOARD_LAYOUT_JSON] = json else it.remove(KEY_KEYBOARD_LAYOUT_JSON)
+        }
+        notifyRepo { it.copy(keyboardLayoutJson = json) }
+    }
+    suspend fun setKeyboardKeyHeightDp(dp: Int) {
+        context.dataStore.edit { it[KEY_KEYBOARD_KEY_HEIGHT_DP] = dp }
+        notifyRepo { it.copy(keyboardKeyHeightDp = dp) }
+    }
+    suspend fun setKeyboardFontSizeSp(sp: Int) {
+        context.dataStore.edit { it[KEY_KEYBOARD_FONT_SIZE_SP] = sp }
+        notifyRepo { it.copy(keyboardFontSizeSp = sp) }
+    }
+    suspend fun setKeyboardHaptic(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_KEYBOARD_HAPTIC] = enabled }
+        notifyRepo { it.copy(keyboardHaptic = enabled) }
+    }
+    suspend fun setKeyboardHoldBehavior(behavior: String) {
+        context.dataStore.edit { it[KEY_KEYBOARD_HOLD_BEHAVIOR] = behavior }
+        notifyRepo { it.copy(keyboardHoldBehavior = behavior) }
+    }
+    suspend fun setKeyboardEditMode(editMode: Boolean) {
+        context.dataStore.edit { it[KEY_KEYBOARD_EDIT_MODE] = editMode }
+        notifyRepo { it.copy(keyboardEditMode = editMode) }
+    }
+    suspend fun setTrashAutoEmptyDays(days: Int) {
+        context.dataStore.edit { it[KEY_TRASH_AUTO_EMPTY_DAYS] = days }
+        notifyRepo { it.copy(trashAutoEmptyDays = days) }
+    }
+    suspend fun setDefaultNewNoteFolder(folder: String) {
+        context.dataStore.edit { it[KEY_DEFAULT_NEW_NOTE_FOLDER] = folder }
+        notifyRepo { it.copy(defaultNewNoteFolder = folder) }
     }
 
-    suspend fun setEditorLetterSpacing(spacing: Float) = context.dataStore.edit { it[KEY_EDITOR_LETTER_SPACING] = spacing }
-    suspend fun setEditorParagraphSpacing(spacing: Int) = context.dataStore.edit { it[KEY_EDITOR_PARAGRAPH_SPACING] = spacing }
-    suspend fun setEditorTextAlignment(align: String) = context.dataStore.edit { it[KEY_EDITOR_TEXT_ALIGNMENT] = align }
-    suspend fun setEditorMarginDp(margin: Int) = context.dataStore.edit { it[KEY_EDITOR_MARGIN_DP] = margin }
-    suspend fun setEditorMaxWidthDp(width: Int) = context.dataStore.edit { it[KEY_EDITOR_MAX_WIDTH_DP] = width }
+    suspend fun setCustomThemeColors(primary: Int, bg: Int, surface: Int, text: Int, secondary: Int) {
+        context.dataStore.edit {
+            it[KEY_CUSTOM_PRIMARY_COLOR] = primary
+            it[KEY_CUSTOM_BACKGROUND_COLOR] = bg
+            it[KEY_CUSTOM_SURFACE_COLOR] = surface
+            it[KEY_CUSTOM_TEXT_COLOR] = text
+            it[KEY_CUSTOM_SECONDARY_COLOR] = secondary
+        }
+        notifyRepo {
+            it.copy(
+                customPrimaryColor = primary,
+                customBackgroundColor = bg,
+                customSurfaceColor = surface,
+                customTextColor = text,
+                customSecondaryColor = secondary
+            )
+        }
+    }
 
-    suspend fun setToolbarItemOrder(order: String) = context.dataStore.edit { it[KEY_TOOLBAR_ITEM_ORDER] = order }
-    suspend fun setToolbarHiddenItems(hidden: Set<String>) = context.dataStore.edit { it[KEY_TOOLBAR_HIDDEN_ITEMS] = hidden }
+    suspend fun setCustomFont(name: String, path: String?) {
+        context.dataStore.edit {
+            it[KEY_CUSTOM_FONT_NAME] = name
+            if (path != null) it[KEY_CUSTOM_FONT_PATH] = path else it.remove(KEY_CUSTOM_FONT_PATH)
+        }
+        notifyRepo {
+            it.copy(
+                customFontName = name,
+                customFontPath = path
+            )
+        }
+    }
 
-    suspend fun setMicButtonSize(size: String) = context.dataStore.edit { it[KEY_MIC_BUTTON_SIZE] = size }
-    suspend fun setMicButtonShape(shape: String) = context.dataStore.edit { it[KEY_MIC_BUTTON_SHAPE] = shape }
-    suspend fun setMicButtonColor(color: String) = context.dataStore.edit { it[KEY_MIC_BUTTON_COLOR] = color }
-    suspend fun setMicButtonPosition(pos: String) = context.dataStore.edit { it[KEY_MIC_BUTTON_POSITION] = pos }
-    suspend fun setMicButtonOffsetY(offset: Int) = context.dataStore.edit { it[KEY_MIC_BUTTON_OFFSET_Y] = offset }
+    suspend fun setEditorLetterSpacing(spacing: Float) {
+        context.dataStore.edit { it[KEY_EDITOR_LETTER_SPACING] = spacing }
+        notifyRepo { it.copy(editorLetterSpacing = spacing) }
+    }
+    suspend fun setEditorParagraphSpacing(spacing: Int) {
+        context.dataStore.edit { it[KEY_EDITOR_PARAGRAPH_SPACING] = spacing }
+        notifyRepo { it.copy(editorParagraphSpacing = spacing) }
+    }
+    suspend fun setEditorTextAlignment(align: String) {
+        context.dataStore.edit { it[KEY_EDITOR_TEXT_ALIGNMENT] = align }
+        notifyRepo { it.copy(editorTextAlignment = align) }
+    }
+    suspend fun setEditorMarginDp(margin: Int) {
+        context.dataStore.edit { it[KEY_EDITOR_MARGIN_DP] = margin }
+        notifyRepo { it.copy(editorMarginDp = margin) }
+    }
+    suspend fun setEditorMaxWidthDp(width: Int) {
+        context.dataStore.edit { it[KEY_EDITOR_MAX_WIDTH_DP] = width }
+        notifyRepo { it.copy(editorMaxWidthDp = width) }
+    }
 
-    suspend fun setStatusChipStyle(style: String) = context.dataStore.edit { it[KEY_STATUS_CHIP_STYLE] = style }
-    suspend fun setUiDensity(density: String) = context.dataStore.edit { it[KEY_UI_DENSITY] = density }
-    suspend fun setCornerRadiusDp(radius: Int) = context.dataStore.edit { it[KEY_CORNER_RADIUS_DP] = radius }
-    suspend fun setDictationAnimationStyle(style: String) = context.dataStore.edit { it[KEY_DICTATION_ANIMATION_STYLE] = style }
-    suspend fun setHapticsLevel(level: String) = context.dataStore.edit { it[KEY_HAPTICS_LEVEL] = level }
+    suspend fun setToolbarItemOrder(order: String) {
+        context.dataStore.edit { it[KEY_TOOLBAR_ITEM_ORDER] = order }
+        notifyRepo { it.copy(toolbarItemOrder = order) }
+    }
+    suspend fun setToolbarHiddenItems(hidden: Set<String>) {
+        context.dataStore.edit { it[KEY_TOOLBAR_HIDDEN_ITEMS] = hidden }
+        notifyRepo { it.copy(toolbarHiddenItems = hidden) }
+    }
+
+    suspend fun setMicButtonSize(size: String) {
+        context.dataStore.edit { it[KEY_MIC_BUTTON_SIZE] = size }
+        notifyRepo { it.copy(micButtonSize = size) }
+    }
+    suspend fun setMicButtonShape(shape: String) {
+        context.dataStore.edit { it[KEY_MIC_BUTTON_SHAPE] = shape }
+        notifyRepo { it.copy(micButtonShape = shape) }
+    }
+    suspend fun setMicButtonColor(color: String) {
+        context.dataStore.edit { it[KEY_MIC_BUTTON_COLOR] = color }
+        notifyRepo { it.copy(micButtonColor = color) }
+    }
+    suspend fun setMicButtonPosition(pos: String) {
+        context.dataStore.edit { it[KEY_MIC_BUTTON_POSITION] = pos }
+        notifyRepo { it.copy(micButtonPosition = pos) }
+    }
+    suspend fun setMicButtonOffsetY(offset: Int) {
+        context.dataStore.edit { it[KEY_MIC_BUTTON_OFFSET_Y] = offset }
+        notifyRepo { it.copy(micButtonOffsetY = offset) }
+    }
+
+    suspend fun setStatusChipStyle(style: String) {
+        context.dataStore.edit { it[KEY_STATUS_CHIP_STYLE] = style }
+        notifyRepo { it.copy(statusChipStyle = style) }
+    }
+    suspend fun setUiDensity(density: String) {
+        context.dataStore.edit { it[KEY_UI_DENSITY] = density }
+        notifyRepo { it.copy(uiDensity = density) }
+    }
+    suspend fun setCornerRadiusDp(radius: Int) {
+        context.dataStore.edit { it[KEY_CORNER_RADIUS_DP] = radius }
+        notifyRepo { it.copy(cornerRadiusDp = radius) }
+    }
+    suspend fun setDictationAnimationStyle(style: String) {
+        context.dataStore.edit { it[KEY_DICTATION_ANIMATION_STYLE] = style }
+        notifyRepo { it.copy(dictationAnimationStyle = style) }
+    }
+    suspend fun setHapticsLevel(level: String) {
+        context.dataStore.edit { it[KEY_HAPTICS_LEVEL] = level }
+        notifyRepo { it.copy(hapticsLevel = level) }
+    }
 
     fun getExpandedFoldersSync(): Set<String> {
         return syncPrefs.getStringSet("expanded_folders", null) ?: setOf("General", "Templates")
@@ -564,16 +726,35 @@ class PreferencesManager(private val context: Context) {
         syncPrefs.edit().putStringSet("expanded_folders", folders).apply()
     }
 
-    suspend fun setShowNoteMetricsInList(show: Boolean) = context.dataStore.edit { it[KEY_SHOW_NOTE_METRICS_IN_LIST] = show }
-    suspend fun setNoteMetricsStyle(style: String) = context.dataStore.edit { it[KEY_NOTE_METRICS_STYLE] = style }
-    suspend fun setNoteMetricsOrder(order: String) = context.dataStore.edit { it[KEY_NOTE_METRICS_ORDER] = order }
-    suspend fun setNoteMetricsHiddenItems(hidden: Set<String>) = context.dataStore.edit { it[KEY_NOTE_METRICS_HIDDEN_ITEMS] = hidden }
-    suspend fun setKeyboardLayoutVersion(version: Int) = context.dataStore.edit { it[KEY_KEYBOARD_LAYOUT_VERSION] = version }
+    suspend fun setShowNoteMetricsInList(show: Boolean) {
+        context.dataStore.edit { it[KEY_SHOW_NOTE_METRICS_IN_LIST] = show }
+        notifyRepo { it.copy(showNoteMetricsInList = show) }
+    }
+    suspend fun setNoteMetricsStyle(style: String) {
+        context.dataStore.edit { it[KEY_NOTE_METRICS_STYLE] = style }
+        notifyRepo { it.copy(noteMetricsStyle = style) }
+    }
+    suspend fun setNoteMetricsOrder(order: String) {
+        context.dataStore.edit { it[KEY_NOTE_METRICS_ORDER] = order }
+        notifyRepo { it.copy(noteMetricsOrder = order) }
+    }
+    suspend fun setNoteMetricsHiddenItems(hidden: Set<String>) {
+        context.dataStore.edit { it[KEY_NOTE_METRICS_HIDDEN_ITEMS] = hidden }
+        notifyRepo { it.copy(noteMetricsHiddenItems = hidden) }
+    }
+    suspend fun setKeyboardLayoutVersion(version: Int) {
+        context.dataStore.edit { it[KEY_KEYBOARD_LAYOUT_VERSION] = version }
+        notifyRepo { it.copy(keyboardLayoutVersion = version) }
+    }
     suspend fun setExpandedFolders(folders: Set<String>) {
         setExpandedFoldersSync(folders)
         context.dataStore.edit { it[KEY_EXPANDED_FOLDERS] = folders }
+        notifyRepo { it.copy(expandedFolders = folders) }
     }
-    suspend fun setCustomFolders(folders: Set<String>) = context.dataStore.edit { it[KEY_CUSTOM_FOLDERS] = folders }
+    suspend fun setCustomFolders(folders: Set<String>) {
+        context.dataStore.edit { it[KEY_CUSTOM_FOLDERS] = folders }
+        notifyRepo { it.copy(customFolders = folders) }
+    }
 
     // Notes Manager Settings Flows
     val newNoteLocationMode: Flow<String> = context.dataStore.data.map { it[KEY_NEW_NOTE_LOCATION_MODE] ?: "LAST_WORKED_ON" }
@@ -585,13 +766,34 @@ class PreferencesManager(private val context: Context) {
     val afterCreatingNote: Flow<String> = context.dataStore.data.map { it[KEY_AFTER_CREATING_NOTE] ?: "OPEN_EDITOR" }
     val lastActiveFolder: Flow<String> = context.dataStore.data.map { it[KEY_LAST_ACTIVE_FOLDER] ?: "General" }
 
-    suspend fun setNewNoteLocationMode(mode: String) = context.dataStore.edit { it[KEY_NEW_NOTE_LOCATION_MODE] = mode }
-    suspend fun setFixedNewNoteFolder(folder: String) = context.dataStore.edit { it[KEY_FIXED_NEW_NOTE_FOLDER] = folder }
-    suspend fun setAskBeforeCreating(ask: Boolean) = context.dataStore.edit { it[KEY_ASK_BEFORE_CREATING] = ask }
-    suspend fun setAskChooseTemplateToggle(toggle: Boolean) = context.dataStore.edit { it[KEY_ASK_CHOOSE_TEMPLATE_TOGGLE] = toggle }
-    suspend fun setAskStartRecordingToggle(toggle: Boolean) = context.dataStore.edit { it[KEY_ASK_START_RECORDING_TOGGLE] = toggle }
-    suspend fun setNewNoteNamingRule(rule: String) = context.dataStore.edit { it[KEY_NEW_NOTE_NAMING_RULE] = rule }
-    suspend fun setAfterCreatingNote(action: String) = context.dataStore.edit { it[KEY_AFTER_CREATING_NOTE] = action }
+    suspend fun setNewNoteLocationMode(mode: String) {
+        context.dataStore.edit { it[KEY_NEW_NOTE_LOCATION_MODE] = mode }
+        notifyRepo { it.copy(newNoteLocationMode = mode) }
+    }
+    suspend fun setFixedNewNoteFolder(folder: String) {
+        context.dataStore.edit { it[KEY_FIXED_NEW_NOTE_FOLDER] = folder }
+        notifyRepo { it.copy(fixedNewNoteFolder = folder) }
+    }
+    suspend fun setAskBeforeCreating(ask: Boolean) {
+        context.dataStore.edit { it[KEY_ASK_BEFORE_CREATING] = ask }
+        notifyRepo { it.copy(askBeforeCreating = ask) }
+    }
+    suspend fun setAskChooseTemplateToggle(toggle: Boolean) {
+        context.dataStore.edit { it[KEY_ASK_CHOOSE_TEMPLATE_TOGGLE] = toggle }
+        notifyRepo { it.copy(askChooseTemplateToggle = toggle) }
+    }
+    suspend fun setAskStartRecordingToggle(toggle: Boolean) {
+        context.dataStore.edit { it[KEY_ASK_START_RECORDING_TOGGLE] = toggle }
+        notifyRepo { it.copy(askStartRecordingToggle = toggle) }
+    }
+    suspend fun setNewNoteNamingRule(rule: String) {
+        context.dataStore.edit { it[KEY_NEW_NOTE_NAMING_RULE] = rule }
+        notifyRepo { it.copy(newNoteNamingRule = rule) }
+    }
+    suspend fun setAfterCreatingNote(action: String) {
+        context.dataStore.edit { it[KEY_AFTER_CREATING_NOTE] = action }
+        notifyRepo { it.copy(afterCreatingNote = action) }
+    }
 
     fun getLastActiveFolderSync(): String {
         return syncPrefs.getString("last_active_folder", "General") ?: "General"
@@ -605,6 +807,7 @@ class PreferencesManager(private val context: Context) {
         if (folder.isNotBlank()) {
             setLastActiveFolderSync(folder)
             context.dataStore.edit { it[KEY_LAST_ACTIVE_FOLDER] = folder }
+            notifyRepo { it.copy(lastActiveFolder = folder) }
         }
     }
 
@@ -630,41 +833,111 @@ class PreferencesManager(private val context: Context) {
         )
     }
 
-    suspend fun setFloatingUseSideRail(enabled: Boolean) = context.dataStore.edit { it[KEY_FLOATING_USE_SIDE_RAIL] = enabled }
-    suspend fun setRailSide(side: String) = context.dataStore.edit { it[KEY_RAIL_SIDE] = side }
-    suspend fun setRailScale(scale: Float) = context.dataStore.edit { it[KEY_RAIL_SCALE] = scale }
-    suspend fun setRailBottomOffsetDp(offsetDp: Int) = context.dataStore.edit { it[KEY_RAIL_BOTTOM_OFFSET_DP] = offsetDp }
-    suspend fun setRailSpacingDp(spacingDp: Int) = context.dataStore.edit { it[KEY_RAIL_SPACING_DP] = spacingDp }
-    suspend fun setRailKeepTextClear(keepClear: Boolean) = context.dataStore.edit { it[KEY_RAIL_KEEP_TEXT_CLEAR] = keepClear }
-    suspend fun setRailButtonOrder(order: List<String>) = context.dataStore.edit { it[KEY_RAIL_BUTTON_ORDER] = com.example.data.model.FloatingLayoutSettings.orderToString(order) }
-    suspend fun setToggleScale(scale: Float) = context.dataStore.edit { it[KEY_TOGGLE_SCALE] = scale }
-    suspend fun setToggleBottomOffsetDp(offsetDp: Int) = context.dataStore.edit { it[KEY_TOGGLE_BOTTOM_OFFSET_DP] = offsetDp }
-    suspend fun setToggleGapDp(gapDp: Int) = context.dataStore.edit { it[KEY_TOGGLE_GAP_DP] = gapDp }
-    suspend fun setFormatBarScale(scale: Float) = context.dataStore.edit { it[KEY_FORMAT_BAR_SCALE] = scale }
-    suspend fun setFormatBarBottomOffsetDp(offsetDp: Int) = context.dataStore.edit { it[KEY_FORMAT_BAR_BOTTOM_OFFSET_DP] = offsetDp }
-    suspend fun setFormatBarWidthPercent(percent: Int) = context.dataStore.edit { it[KEY_FORMAT_BAR_WIDTH_PERCENT] = percent }
-    suspend fun setFormatBarAlignment(alignment: String) = context.dataStore.edit { it[KEY_FORMAT_BAR_ALIGNMENT] = alignment }
-    suspend fun setWaveformScale(scale: Float) = context.dataStore.edit { it[KEY_WAVEFORM_SCALE] = scale }
-    suspend fun setWaveformShow(show: Boolean) = context.dataStore.edit { it[KEY_WAVEFORM_SHOW] = show }
+    suspend fun setFloatingUseSideRail(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_FLOATING_USE_SIDE_RAIL] = enabled }
+        notifyRepo { it.copy(floatingUseSideRail = enabled) }
+    }
+    suspend fun setRailSide(side: String) {
+        context.dataStore.edit { it[KEY_RAIL_SIDE] = side }
+        notifyRepo { it.copy(railSide = side) }
+    }
+    suspend fun setRailScale(scale: Float) {
+        context.dataStore.edit { it[KEY_RAIL_SCALE] = scale }
+        notifyRepo { it.copy(railScale = scale) }
+    }
+    suspend fun setRailBottomOffsetDp(offsetDp: Int) {
+        context.dataStore.edit { it[KEY_RAIL_BOTTOM_OFFSET_DP] = offsetDp }
+        notifyRepo { it.copy(railBottomOffsetDp = offsetDp) }
+    }
+    suspend fun setRailSpacingDp(spacingDp: Int) {
+        context.dataStore.edit { it[KEY_RAIL_SPACING_DP] = spacingDp }
+        notifyRepo { it.copy(railSpacingDp = spacingDp) }
+    }
+    suspend fun setRailKeepTextClear(keepClear: Boolean) {
+        context.dataStore.edit { it[KEY_RAIL_KEEP_TEXT_CLEAR] = keepClear }
+        notifyRepo { it.copy(railKeepTextClear = keepClear) }
+    }
+    suspend fun setRailButtonOrder(order: List<String>) {
+        context.dataStore.edit { it[KEY_RAIL_BUTTON_ORDER] = com.example.data.model.FloatingLayoutSettings.orderToString(order) }
+        notifyRepo { it.copy(railButtonOrder = order) }
+    }
+    suspend fun setToggleScale(scale: Float) {
+        context.dataStore.edit { it[KEY_TOGGLE_SCALE] = scale }
+        notifyRepo { it.copy(toggleScale = scale) }
+    }
+    suspend fun setToggleBottomOffsetDp(offsetDp: Int) {
+        context.dataStore.edit { it[KEY_TOGGLE_BOTTOM_OFFSET_DP] = offsetDp }
+        notifyRepo { it.copy(toggleBottomOffsetDp = offsetDp) }
+    }
+    suspend fun setToggleGapDp(gapDp: Int) {
+        context.dataStore.edit { it[KEY_TOGGLE_GAP_DP] = gapDp }
+        notifyRepo { it.copy(toggleGapDp = gapDp) }
+    }
+    suspend fun setFormatBarScale(scale: Float) {
+        context.dataStore.edit { it[KEY_FORMAT_BAR_SCALE] = scale }
+        notifyRepo { it.copy(formatBarScale = scale) }
+    }
+    suspend fun setFormatBarBottomOffsetDp(offsetDp: Int) {
+        context.dataStore.edit { it[KEY_FORMAT_BAR_BOTTOM_OFFSET_DP] = offsetDp }
+        notifyRepo { it.copy(formatBarBottomOffsetDp = offsetDp) }
+    }
+    suspend fun setFormatBarWidthPercent(percent: Int) {
+        context.dataStore.edit { it[KEY_FORMAT_BAR_WIDTH_PERCENT] = percent }
+        notifyRepo { it.copy(formatBarWidthPercent = percent) }
+    }
+    suspend fun setFormatBarAlignment(alignment: String) {
+        context.dataStore.edit { it[KEY_FORMAT_BAR_ALIGNMENT] = alignment }
+        notifyRepo { it.copy(formatBarAlignment = alignment) }
+    }
+    suspend fun setWaveformScale(scale: Float) {
+        context.dataStore.edit { it[KEY_WAVEFORM_SCALE] = scale }
+        notifyRepo { it.copy(waveformScale = scale) }
+    }
+    suspend fun setWaveformShow(show: Boolean) {
+        context.dataStore.edit { it[KEY_WAVEFORM_SHOW] = show }
+        notifyRepo { it.copy(waveformShow = show) }
+    }
 
-    suspend fun resetFloatingLayoutToDefaults() = context.dataStore.edit { prefs ->
+    suspend fun resetFloatingLayoutToDefaults() {
         val defaults = com.example.data.model.FloatingLayoutSettings()
-        prefs[KEY_FLOATING_USE_SIDE_RAIL] = defaults.useSideRail
-        prefs[KEY_RAIL_SIDE] = defaults.railSide
-        prefs[KEY_RAIL_SCALE] = defaults.railScale
-        prefs[KEY_RAIL_BOTTOM_OFFSET_DP] = defaults.railBottomOffsetDp
-        prefs[KEY_RAIL_SPACING_DP] = defaults.railSpacingDp
-        prefs[KEY_RAIL_KEEP_TEXT_CLEAR] = defaults.keepTextClearOfRail
-        prefs[KEY_RAIL_BUTTON_ORDER] = com.example.data.model.FloatingLayoutSettings.orderToString(defaults.railButtonOrder)
-        prefs[KEY_TOGGLE_SCALE] = defaults.toggleScale
-        prefs[KEY_TOGGLE_BOTTOM_OFFSET_DP] = defaults.toggleBottomOffsetDp
-        prefs[KEY_TOGGLE_GAP_DP] = defaults.toggleGapDp
-        prefs[KEY_FORMAT_BAR_SCALE] = defaults.formatBarScale
-        prefs[KEY_FORMAT_BAR_BOTTOM_OFFSET_DP] = defaults.formatBarBottomOffsetDp
-        prefs[KEY_FORMAT_BAR_WIDTH_PERCENT] = defaults.formatBarWidthPercent
-        prefs[KEY_FORMAT_BAR_ALIGNMENT] = defaults.formatBarAlignment
-        prefs[KEY_WAVEFORM_SCALE] = defaults.waveformScale
-        prefs[KEY_WAVEFORM_SHOW] = defaults.showWaveform
+        context.dataStore.edit { prefs ->
+            prefs[KEY_FLOATING_USE_SIDE_RAIL] = defaults.useSideRail
+            prefs[KEY_RAIL_SIDE] = defaults.railSide
+            prefs[KEY_RAIL_SCALE] = defaults.railScale
+            prefs[KEY_RAIL_BOTTOM_OFFSET_DP] = defaults.railBottomOffsetDp
+            prefs[KEY_RAIL_SPACING_DP] = defaults.railSpacingDp
+            prefs[KEY_RAIL_KEEP_TEXT_CLEAR] = defaults.keepTextClearOfRail
+            prefs[KEY_RAIL_BUTTON_ORDER] = com.example.data.model.FloatingLayoutSettings.orderToString(defaults.railButtonOrder)
+            prefs[KEY_TOGGLE_SCALE] = defaults.toggleScale
+            prefs[KEY_TOGGLE_BOTTOM_OFFSET_DP] = defaults.toggleBottomOffsetDp
+            prefs[KEY_TOGGLE_GAP_DP] = defaults.toggleGapDp
+            prefs[KEY_FORMAT_BAR_SCALE] = defaults.formatBarScale
+            prefs[KEY_FORMAT_BAR_BOTTOM_OFFSET_DP] = defaults.formatBarBottomOffsetDp
+            prefs[KEY_FORMAT_BAR_WIDTH_PERCENT] = defaults.formatBarWidthPercent
+            prefs[KEY_FORMAT_BAR_ALIGNMENT] = defaults.formatBarAlignment
+            prefs[KEY_WAVEFORM_SCALE] = defaults.waveformScale
+            prefs[KEY_WAVEFORM_SHOW] = defaults.showWaveform
+        }
+        notifyRepo {
+            it.copy(
+                floatingUseSideRail = defaults.useSideRail,
+                railSide = defaults.railSide,
+                railScale = defaults.railScale,
+                railBottomOffsetDp = defaults.railBottomOffsetDp,
+                railSpacingDp = defaults.railSpacingDp,
+                railKeepTextClear = defaults.keepTextClearOfRail,
+                railButtonOrder = defaults.railButtonOrder,
+                toggleScale = defaults.toggleScale,
+                toggleBottomOffsetDp = defaults.toggleBottomOffsetDp,
+                toggleGapDp = defaults.toggleGapDp,
+                formatBarScale = defaults.formatBarScale,
+                formatBarBottomOffsetDp = defaults.formatBarBottomOffsetDp,
+                formatBarWidthPercent = defaults.formatBarWidthPercent,
+                formatBarAlignment = defaults.formatBarAlignment,
+                waveformScale = defaults.waveformScale,
+                waveformShow = defaults.showWaveform
+            )
+        }
     }
 
     suspend fun getAllPreferencesForBackup(): JSONObject {
