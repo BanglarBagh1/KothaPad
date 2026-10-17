@@ -1067,6 +1067,7 @@ fun EditorScreen(
                 onReorderTemplates = { viewModel.reorderTemplates(it) },
                 onUpdateTrashDays = { viewModel.setTrashAutoEmptyDaysPref(it) },
                 onClose = { viewModel.isNoteManagerOpen.value = false },
+                onReloadVault = { viewModel.reloadVaultFromDisk() },
                 isVaultScanning = isVaultScanning,
                 vaultScanProgress = vaultScanProgress
             )

@@ -58,10 +58,12 @@ import androidx.compose.material.icons.filled.Merge
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
@@ -187,6 +189,7 @@ fun NotesManagerScreen(
     onReorderTemplates: (List<Stamp>) -> Unit,
     onUpdateTrashDays: (Int) -> Unit,
     onClose: () -> Unit,
+    onReloadVault: () -> Unit = {},
     isVaultScanning: Boolean = false,
     vaultScanProgress: String? = null,
     modifier: Modifier = Modifier
@@ -493,6 +496,17 @@ fun NotesManagerScreen(
                             Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Select all")
                         }
                     } else {
+                        // Reload vault button
+                        IconButton(
+                            onClick = onReloadVault,
+                            modifier = Modifier.testTag("notes_manager_reload_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Reload vault",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         // Settings (gear) icon on the right side of the header
                         IconButton(
                             onClick = onOpenSettings,
@@ -781,6 +795,22 @@ fun NotesManagerScreen(
                             modifier = Modifier.size(22.dp)
                         )
                     }
+
+                    // 6. Reload vault from disk
+                    IconButton(
+                        onClick = {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            onReloadVault()
+                        },
+                        modifier = Modifier.testTag("quick_action_reload")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Reload vault",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
 
@@ -813,11 +843,16 @@ fun NotesManagerScreen(
                 )
             }
 
-            // MAIN AREA: VERTICAL FILE EXPLORER TREE
-            if (currentVaultView == VaultView.TRASH) {
-                // TRASH VIEW BANNER & LIST
-                TrashHeaderBanner(
-                    trashedCount = trashedNotes.size,
+            // MAIN AREA: VERTICAL FILE EXPLORER TREE (Supports Pull-To-Refresh)
+            PullToRefreshBox(
+                isRefreshing = isVaultScanning,
+                onRefresh = onReloadVault,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (currentVaultView == VaultView.TRASH) {
+                    // TRASH VIEW BANNER & LIST
+                    TrashHeaderBanner(
+                        trashedCount = trashedNotes.size,
                     trashAutoEmptyDays = trashAutoEmptyDays,
                     onEmptyTrashClick = { showEmptyTrashConfirmDialog = true },
                     onUpdateTrashDays = onUpdateTrashDays
@@ -1096,6 +1131,7 @@ fun NotesManagerScreen(
                 }
             }
         }
+    }
     }
 
     // ==========================================

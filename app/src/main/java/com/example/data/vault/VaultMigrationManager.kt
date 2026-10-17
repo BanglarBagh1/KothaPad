@@ -85,10 +85,66 @@ class VaultMigrationManager(
 
     suspend fun migrateInternalDataToVault(
         vaultDoc: DocumentFile,
+        replaceExisting: Boolean = false,
         onProgress: suspend (String) -> Unit = {}
     ): Result<MigrationSummary> = withContext(Dispatchers.IO) {
+        // Snapshot existing vault files for safe rollback if migration fails midway
+        val snapshot = mutableMapOf<String, ByteArray>()
+        try {
+            suspend fun snapshotDir(dir: DocumentFile, currentRelPath: String) {
+                val children = vaultManager.listChildren(dir)
+                for (child in children) {
+                    val name = child.name ?: continue
+                    val relPath = if (currentRelPath.isEmpty()) name else "$currentRelPath/$name"
+                    if (child.isDirectory) {
+                        snapshotDir(child, relPath)
+                    } else if (child.isFile) {
+                        context.contentResolver.openInputStream(child.uri)?.use { stream ->
+                            val buffer = java.io.ByteArrayOutputStream()
+                            stream.copyTo(buffer)
+                            snapshot[relPath] = buffer.toByteArray()
+                        }
+                    }
+                }
+            }
+            snapshotDir(vaultDoc, "")
+        } catch (_: Exception) {}
+
+        suspend fun performRollback() {
+            try {
+                val currentChildren = vaultManager.listChildren(vaultDoc)
+                for (ch in currentChildren) {
+                    val name = ch.name ?: ""
+                    // Do not delete external hidden folders like .obsidian
+                    if (!name.startsWith(".") || name == KOTHAPAD_DIR) {
+                        vaultManager.delete(ch)
+                    }
+                }
+                for ((relPath, bytes) in snapshot) {
+                    val idx = relPath.lastIndexOf('/')
+                    val dir = if (idx != -1) {
+                        vaultManager.getOrCreateDirRecursive(vaultDoc, relPath.substring(0, idx)) ?: vaultDoc
+                    } else vaultDoc
+                    val fileName = if (idx != -1) relPath.substring(idx + 1) else relPath
+                    vaultManager.writeTextAtomic(dir, fileName, bytes.toString(Charsets.UTF_8))
+                }
+            } catch (_: Exception) {}
+        }
+
         try {
             onProgress("Preparing vault migration...")
+
+            // If user explicitly chose Replace, remove existing non-hidden files and .kothapad
+            if (replaceExisting) {
+                onProgress("Clearing previous vault data...")
+                val children = vaultManager.listChildren(vaultDoc)
+                for (child in children) {
+                    val name = child.name ?: continue
+                    if (!name.startsWith(".") || name == KOTHAPAD_DIR) {
+                        vaultManager.delete(child)
+                    }
+                }
+            }
 
             // 1. Fetch old data from Room & Preferences
             val oldNotes = noteDao.getAllNotesList()
@@ -96,10 +152,10 @@ class VaultMigrationManager(
             val customFolders = preferencesManager.customFolders.first()
 
             val kothaDir = vaultManager.getOrCreateDirRecursive(vaultDoc, KOTHAPAD_DIR)
-                ?: return@withContext Result.failure(IllegalStateException("Failed to create .kothapad folder in vault"))
+                ?: throw IllegalStateException("Failed to create .kothapad folder in vault")
 
             val templatesDir = vaultManager.getOrCreateDirRecursive(vaultDoc, TEMPLATES_DIR)
-                ?: return@withContext Result.failure(IllegalStateException("Failed to create Templates folder in vault"))
+                ?: throw IllegalStateException("Failed to create Templates folder in vault")
 
             // 2. Create custom folders
             onProgress("Creating folder structure...")
@@ -201,7 +257,7 @@ class VaultMigrationManager(
 
             // 8. Verification: Check file counts
             if (oldNotes.isNotEmpty() && writtenNotes == 0) {
-                return@withContext Result.failure(IllegalStateException("No notes could be written to vault storage."))
+                throw IllegalStateException("No notes could be written to vault storage.")
             }
 
             // 9. Mark migration completed
@@ -216,6 +272,7 @@ class VaultMigrationManager(
                 )
             )
         } catch (e: Exception) {
+            performRollback()
             Result.failure(e)
         }
     }

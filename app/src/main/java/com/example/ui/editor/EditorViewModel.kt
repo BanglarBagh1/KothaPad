@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
@@ -82,6 +83,10 @@ class EditorViewModel(
     // Notes Data
     val allNotes: StateFlow<List<Note>> = noteRepository.allNotes
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val vaultNotesCount: StateFlow<Int> = allNotes
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val activeNotes: StateFlow<List<Note>> = noteRepository.activeNotes
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -421,6 +426,26 @@ class EditorViewModel(
                 checkAndResumeSessionTimer()
             }
         }
+
+        // Handle files deleted externally without crashing
+        viewModelScope.launch {
+            allNotes.collect { notes ->
+                val current = _currentNote.value
+                if (current != null && notes.isNotEmpty()) {
+                    val exists = notes.any { it.id == current.id }
+                    if (!exists) {
+                        val next = vaultNoteRepository.getLatestActiveNote() ?: vaultNoteRepository.getLatestNote()
+                        withContext(Dispatchers.Main) {
+                            if (next != null) {
+                                loadNote(next)
+                            } else {
+                                createNewNote()
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var sessionDurationJob: Job? = null
@@ -704,20 +729,22 @@ class EditorViewModel(
         }
     }
 
-    fun proceedWithMigration() {
+    fun proceedWithMigration(replaceExisting: Boolean = false) {
         val vaultDoc = pendingVaultDoc ?: vaultManager.getCurrentVaultDocumentFile() ?: return
         showMigrationPromptDialog.value = false
         showVaultConflictPromptDialog.value = false
+        pendingVaultDoc = null
         viewModelScope.launch {
             isMigrating.value = true
             migrationProgress.value = "Starting migration..."
-            val result = vaultMigrationManager.migrateInternalDataToVault(vaultDoc) { progress ->
+            val result = vaultMigrationManager.migrateInternalDataToVault(vaultDoc, replaceExisting = replaceExisting) { progress ->
                 migrationProgress.value = progress
             }
             isMigrating.value = false
             migrationProgress.value = null
             result.fold(
                 onSuccess = {
+                    settingsRepository.loadVaultSettings(vaultDoc, preferencesManager)
                     vaultNoteRepository.onVaultOpened(vaultDoc)
                     reloadAfterImport()
                 },
@@ -725,6 +752,15 @@ class EditorViewModel(
                     migrationError.value = err.message ?: "Migration failed"
                 }
             )
+        }
+    }
+
+    fun useExistingVaultData() {
+        showVaultConflictPromptDialog.value = false
+        showMigrationPromptDialog.value = false
+        pendingVaultDoc = null
+        viewModelScope.launch {
+            preferencesManager.setOldDataMigrated(true)
         }
     }
 
@@ -2129,6 +2165,11 @@ class EditorViewModel(
     }
 
     suspend fun reloadAfterImport() {
+        val vaultDoc = vaultManager.getCurrentVaultDocumentFile()
+        if (vaultDoc != null) {
+            settingsRepository.loadVaultSettings(vaultDoc, preferencesManager)
+            vaultNoteRepository.onVaultOpened(vaultDoc)
+        }
         val lastId = preferencesManager.getLastOpenedNoteIdSync()
         var noteToLoad: Note? = null
         if (lastId > 0) {

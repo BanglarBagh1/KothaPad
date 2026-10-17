@@ -91,6 +91,10 @@ object BackupManager {
                 val children = vaultManager.listChildren(dir)
                 for (child in children) {
                     val name = child.name ?: continue
+                    // Skip hidden folders/files other than .kothapad (e.g. .obsidian, .trash)
+                    if (name.startsWith(".") && name != ".kothapad") {
+                        continue
+                    }
                     val relPath = if (currentRelPath.isEmpty()) name else "$currentRelPath/$name"
 
                     if (child.isDirectory) {
@@ -395,10 +399,13 @@ object BackupManager {
         // Helper to rollback if anything fails
         suspend fun performRollback() {
             try {
-                // Clear damaged files
+                // Clear damaged files (preserving external hidden folders)
                 val currentChildren = vaultManager.listChildren(vaultDoc)
                 for (ch in currentChildren) {
-                    vaultManager.delete(ch)
+                    val name = ch.name ?: ""
+                    if (!name.startsWith(".") || name == ".kothapad") {
+                        vaultManager.delete(ch)
+                    }
                 }
                 // Restore snapshot
                 for ((relPath, bytes) in snapshot) {
@@ -413,10 +420,13 @@ object BackupManager {
         }
 
         try {
-            // Delete existing files in vault
+            // Delete existing files in vault (preserving external hidden folders like .obsidian)
             val currentChildren = vaultManager.listChildren(vaultDoc)
             for (ch in currentChildren) {
-                vaultManager.delete(ch)
+                val name = ch.name ?: ""
+                if (!name.startsWith(".") || name == ".kothapad") {
+                    vaultManager.delete(ch)
+                }
             }
 
             var notesRestored = 0

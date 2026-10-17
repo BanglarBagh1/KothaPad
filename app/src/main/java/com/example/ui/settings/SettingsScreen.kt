@@ -449,7 +449,7 @@ fun SettingsScreen(
                         SettingItem.InfoText(
                             id = "current_vault_info",
                             title = curr?.name ?: "No vault selected",
-                            description = "Location: $currentPath\nStatus: ${if (vaultState.isAccessible) "Active & Synced (.kothapad/settings.json)" else "Inaccessible"}",
+                            description = "Location: $currentPath\nNotes: $vaultNotesCount notes\nStatus: ${if (vaultState.isAccessible) "Active & Synced (.kothapad/settings.json)" else "Inaccessible"}",
                             badge = if (vaultState.isAccessible) "Active" else "Inaccessible"
                         )
                     )
@@ -458,7 +458,7 @@ fun SettingsScreen(
                         SettingItem.ButtonRow(
                             id = "vault_actions_row",
                             title = "Vault Controls",
-                            subtitle = "Switch, open, or close the workspace vault",
+                            subtitle = "Switch, open, reload, or close the workspace vault",
                             buttons = buildList {
                                 add(
                                     SettingButtonOption(
@@ -482,9 +482,28 @@ fun SettingsScreen(
                                 }
                                 add(
                                     SettingButtonOption(
+                                        label = "Reload from disk",
+                                        onClick = onReloadVaultFromDisk
+                                    )
+                                )
+                                add(
+                                    SettingButtonOption(
+                                        label = "Rebuild index",
+                                        onClick = onRebuildVaultIndex
+                                    )
+                                )
+                                add(
+                                    SettingButtonOption(
                                         label = "Close Vault",
                                         isDestructive = true,
                                         onClick = onCloseVault
+                                    )
+                                )
+                                add(
+                                    SettingButtonOption(
+                                        label = "Delete old internal data",
+                                        isDestructive = true,
+                                        onClick = { showDeleteOldDataDialog = true }
                                     )
                                 )
                             }
@@ -1817,6 +1836,36 @@ fun SettingsScreen(
             }
         )
     }
+
+    // Delete Old Internal Data Confirmation Dialog
+    if (showDeleteOldDataDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteOldDataDialog = false },
+            title = { Text("Delete Old Internal Data") },
+            text = {
+                Text(
+                    "Are you sure you want to delete all legacy notes and templates from app-private storage? Your vault files will not be affected. This cannot be undone.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteOldDataDialog = false
+                        onDeleteOldInternalData()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteOldDataDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 // ==========================================
@@ -2116,6 +2165,7 @@ private fun ChipGroupControlRow(item: SettingItem.ChipGroup) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ButtonRowControl(item: SettingItem.ButtonRow) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -2134,14 +2184,14 @@ private fun ButtonRowControl(item: SettingItem.ButtonRow) {
             }
             Spacer(modifier = Modifier.height(6.dp))
         }
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item.buttons.forEach { btn ->
                 OutlinedButton(
                     onClick = btn.onClick,
-                    modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
