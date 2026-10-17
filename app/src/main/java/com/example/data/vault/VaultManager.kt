@@ -333,16 +333,26 @@ class VaultManager(private val context: Context) {
 
             val renameOk = tempFile.renameTo(cleanName)
             if (renameOk) {
+                val bakName = "$cleanName.bak"
+                val bakFile = parentDir.findFile(bakName)
+                if (bakFile != null && bakFile.exists()) {
+                    bakFile.delete()
+                }
                 parentDir.findFile(cleanName) ?: tempFile
             } else {
-                // If renameTo returned false, fallback to direct write on target or return tempFile
+                // If renameTo returned false, try restoring the backup and writing directly
+                val bakName = "$cleanName.bak"
+                val bakFile = parentDir.findFile(bakName)
+                if (bakFile != null && bakFile.exists()) {
+                    bakFile.renameTo(cleanName)
+                }
+                tempFile.delete()
                 val target = parentDir.findFile(cleanName) ?: parentDir.createFile(mimeType, cleanName)
                 if (target != null) {
-                    writeText(target, text)
-                    tempFile.delete()
-                    target
+                    val fallbackOk = writeText(target, text)
+                    if (fallbackOk) target else null
                 } else {
-                    tempFile
+                    null
                 }
             }
         } catch (e: Exception) {

@@ -328,26 +328,6 @@ class EditorViewModel(
             }
         }
 
-        // Initialize active note on start: restore last-opened note
-        viewModelScope.launch {
-            val lastId = preferencesManager.getLastOpenedNoteIdSync()
-            var noteToLoad: Note? = null
-            if (lastId > 0) {
-                val found = noteRepository.getNoteOnce(lastId)
-                if (found != null && !found.isDeleted) {
-                    noteToLoad = found
-                }
-            }
-            if (noteToLoad == null) {
-                noteToLoad = noteRepository.getLatestActiveNote() ?: noteRepository.getLatestNote()
-            }
-            if (noteToLoad != null) {
-                loadNote(noteToLoad)
-            } else {
-                createNewNote()
-            }
-        }
-
         // Load initial vault settings and notes if already selected and accessible
         viewModelScope.launch {
             if (vaultManager.vaultState.value.isAccessible) {
@@ -378,6 +358,8 @@ class EditorViewModel(
                     withContext(Dispatchers.Main) {
                         if (targetNote != null) {
                             loadNote(targetNote)
+                        } else {
+                            createNewNote()
                         }
                     }
                 }
@@ -525,7 +507,9 @@ class EditorViewModel(
                 }
                 noteRepository.update(toSave)
                 withContext(Dispatchers.Main) {
-                    _currentNote.value = toSave
+                    if (_currentNote.value?.id == toSave.id) {
+                        _currentNote.value = toSave
+                    }
                 }
             } catch (_: Exception) {
                 // Non-blocking error
@@ -539,6 +523,8 @@ class EditorViewModel(
 
     fun openVault(uri: Uri, onResult: ((Boolean, String?) -> Unit)? = null) {
         viewModelScope.launch {
+            flushAutoSave()
+            settingsRepository.flushSaves()
             val result = vaultManager.openVaultFromUri(uri)
             result.fold(
                 onSuccess = {
@@ -578,6 +564,8 @@ class EditorViewModel(
 
     fun createNewVault(parentUri: Uri, vaultName: String, onResult: ((Boolean, String?) -> Unit)? = null) {
         viewModelScope.launch {
+            flushAutoSave()
+            settingsRepository.flushSaves()
             val result = vaultManager.createNewVaultInParent(parentUri, vaultName)
             result.fold(
                 onSuccess = {
@@ -1472,6 +1460,7 @@ class EditorViewModel(
                 current.remove(folder)
             }
             preferencesManager.setExpandedFolders(current)
+            vaultNoteRepository.saveWorkspace(expandedFolders = current)
         }
     }
 
@@ -1479,6 +1468,7 @@ class EditorViewModel(
         viewModelScope.launch {
             val newSet = if (expanded) allFolders else emptySet()
             preferencesManager.setExpandedFolders(newSet)
+            vaultNoteRepository.saveWorkspace(expandedFolders = newSet)
         }
     }
 
@@ -1490,6 +1480,7 @@ class EditorViewModel(
             current.add(trimmed)
             preferencesManager.setCustomFolders(current)
             toggleFolderExpanded(trimmed, true)
+            vaultNoteRepository.createFolderOnDisk(trimmed)
         }
     }
 
@@ -1497,6 +1488,7 @@ class EditorViewModel(
         val trimmed = newFolder.trim()
         if (trimmed.isBlank() || trimmed.equals(oldFolder, ignoreCase = true)) return
         viewModelScope.launch(Dispatchers.IO) {
+            vaultNoteRepository.renameFolderOnDisk(oldFolder, trimmed)
             val all = noteRepository.allNotes.first()
             val notesToUpdate = all.filter {
                 it.folder.equals(oldFolder, ignoreCase = true) || it.folder.startsWith("$oldFolder/", ignoreCase = true)
@@ -1542,6 +1534,7 @@ class EditorViewModel(
             currentExp.removeAll(expToRemove)
             currentExp.addAll(expToAdd)
             preferencesManager.setExpandedFolders(currentExp)
+            vaultNoteRepository.saveWorkspace(expandedFolders = currentExp)
 
             if (_currentNote.value?.folder.equals(oldFolder, ignoreCase = true)) {
                 _currentNote.value = _currentNote.value?.copy(folder = trimmed)
@@ -1554,6 +1547,7 @@ class EditorViewModel(
 
     fun deleteFolder(folder: String, deleteContainedNotes: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
+            vaultNoteRepository.deleteFolderOnDisk(folder, deleteContainedNotes)
             val all = noteRepository.allNotes.first()
             val notesInFolder = all.filter {
                 it.folder.equals(folder, ignoreCase = true) || it.folder.startsWith("$folder/", ignoreCase = true)
@@ -1579,6 +1573,7 @@ class EditorViewModel(
             }.toSet()
             currentExp.removeAll(expToRemove)
             preferencesManager.setExpandedFolders(currentExp)
+            vaultNoteRepository.saveWorkspace(expandedFolders = currentExp)
         }
     }
 
@@ -1586,7 +1581,7 @@ class EditorViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val copy = note.copy(
                 id = 0,
-                title = if (note.title.isNotBlank()) "${note.title} (Copy)" else "Untitled Note (Copy)",
+                title = note.title,
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis(),
                 isPinned = false

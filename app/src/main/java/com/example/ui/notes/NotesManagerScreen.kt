@@ -80,6 +80,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -186,6 +187,8 @@ fun NotesManagerScreen(
     onReorderTemplates: (List<Stamp>) -> Unit,
     onUpdateTrashDays: (Int) -> Unit,
     onClose: () -> Unit,
+    isVaultScanning: Boolean = false,
+    vaultScanProgress: String? = null,
     modifier: Modifier = Modifier
 ) {
     val view = LocalView.current
@@ -640,6 +643,32 @@ fun NotesManagerScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            // Vault Background Indexing Progress Banner
+            AnimatedVisibility(visible = isVaultScanning) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = vaultScanProgress ?: "Indexing notes...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SaffronPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp),
+                        color = SaffronPrimary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                }
+            }
+
             // QUICK-ACTION ICON ROW (Obsidian-mobile style, evenly spaced)
             Surface(
                 modifier = Modifier.fillMaxWidth(),

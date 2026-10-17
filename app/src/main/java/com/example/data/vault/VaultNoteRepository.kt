@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -183,6 +184,7 @@ class VaultNoteRepository(
     private suspend fun scanVaultRecursive(vaultDoc: DocumentFile) = withContext(Dispatchers.IO) {
         val discoveredEntries = mutableListOf<CachedNoteEntry>()
         val foundPaths = mutableSetOf<String>()
+        val discoveredFolders = mutableSetOf<String>()
         var count = 0
 
         suspend fun traverse(dir: DocumentFile, currentRelPath: String) {
@@ -196,9 +198,14 @@ class VaultNoteRepository(
                 }
 
                 if (child.isDirectory) {
+                    // Templates folder is reserved for template files (stamps)
+                    if (currentRelPath.isEmpty() && name.equals(TEMPLATES_DIR, ignoreCase = true)) {
+                        continue
+                    }
                     val nextRel = if (currentRelPath.isEmpty()) name else "$currentRelPath/$name"
+                    discoveredFolders.add(nextRel)
                     traverse(child, nextRel)
-                } else if (child.isFile && (name.endsWith(".md", ignoreCase = true) || name.endsWith(".markdown", ignoreCase = true))) {
+                } else if (child.isFile && name.endsWith(".md", ignoreCase = true)) {
                     val fileRelPath = if (currentRelPath.isEmpty()) name else "$currentRelPath/$name"
                     foundPaths.add(fileRelPath)
                     count++
@@ -207,7 +214,7 @@ class VaultNoteRepository(
                         _scanProgress.value = "Indexed $count notes..."
                     }
 
-                    val baseTitle = name.removeSuffix(".md").removeSuffix(".markdown")
+                    val baseTitle = name.removeSuffix(".md")
                     val folderName = if (currentRelPath.isEmpty()) GENERAL_DIR else currentRelPath
                     val lastMod = child.lastModified()
 
@@ -265,6 +272,17 @@ class VaultNoteRepository(
             removeIdForPath(r)
             metadataMap.remove(r)
         }
+
+        // Sync discovered real folders to customFolders so they appear in Notes Manager
+        try {
+            val existingCustom: Set<String> = preferencesManager.customFolders.first()
+            val mergedCustom: Set<String> = (existingCustom + discoveredFolders).filter {
+                !it.equals(GENERAL_DIR, ignoreCase = true) && !it.equals(TEMPLATES_DIR, ignoreCase = true)
+            }.toSet()
+            if (mergedCustom != existingCustom) {
+                preferencesManager.setCustomFolders(mergedCustom)
+            }
+        } catch (_: Exception) {}
 
         // If vault is completely brand-new / empty (0 markdown notes), create an initial welcome note
         if (discoveredEntries.isEmpty()) {
@@ -608,6 +626,13 @@ class VaultNoteRepository(
             }
         }
 
+        // Keep workspace.json in sync if this note was the last opened note or folder changed
+        if (entry.relPath != currentRelPath) {
+            if (workspaceData.lastOpenedNoteRelPath == entry.relPath) {
+                saveWorkspace(lastOpenedRelPath = currentRelPath, lastFolder = targetFolder)
+            }
+        }
+
         // 3. Write markdown content atomically if changed
         if (entry.note.content != note.content) {
             val fileName = currentFile.name ?: "${VaultManager.sanitizeFilename(note.title)}.md"
@@ -684,6 +709,9 @@ class VaultNoteRepository(
                 cache.remove(relPath)
                 removeIdForPath(relPath)
                 metadataMap.remove(relPath)
+                if (workspaceData.lastOpenedNoteRelPath == relPath) {
+                    saveWorkspace(lastOpenedRelPath = null)
+                }
             }
         }
         saveMetadata()
@@ -812,6 +840,13 @@ class VaultNoteRepository(
                     )
                     onNewTemplateDiscovered(stamp)
                 }
+            }
+        }
+        // Bidirectional sync: make sure existing DB templates exist on disk
+        for (st in existingTemplates) {
+            val fileName = "${VaultManager.sanitizeFilename(st.label)}.md"
+            if (templatesDir.findFile(fileName) == null) {
+                saveTemplateFile(st)
             }
         }
     }

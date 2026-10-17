@@ -211,6 +211,16 @@ fun EditorScreen(
     val markdownSettings by viewModel.markdownSettings.collectAsState()
     val floatingLayoutSettings by viewModel.floatingLayoutSettings.collectAsState()
 
+    val isVaultScanning by viewModel.isVaultScanning.collectAsState()
+    val vaultScanProgress by viewModel.vaultScanProgress.collectAsState()
+    val vaultSaveError by viewModel.vaultSaveError.collectAsState()
+
+    LaunchedEffect(vaultSaveError) {
+        vaultSaveError?.let { err ->
+            snackbarHostState.showSnackbar(err)
+        }
+    }
+
     // Editor New Note Destination Dialog States
     var showNewNoteDialogFromEditor by remember { mutableStateOf(false) }
     var editorNewNoteFolder by remember { mutableStateOf("General") }
@@ -1056,7 +1066,9 @@ fun EditorScreen(
                 onPinTemplate = { viewModel.togglePinTemplate(it) },
                 onReorderTemplates = { viewModel.reorderTemplates(it) },
                 onUpdateTrashDays = { viewModel.setTrashAutoEmptyDaysPref(it) },
-                onClose = { viewModel.isNoteManagerOpen.value = false }
+                onClose = { viewModel.isNoteManagerOpen.value = false },
+                isVaultScanning = isVaultScanning,
+                vaultScanProgress = vaultScanProgress
             )
         }
     }
