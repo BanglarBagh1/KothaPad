@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -49,7 +50,8 @@ import com.example.ui.theme.SaffronPrimary
 fun MarkdownFormatBar(
     enabledButtonIds: List<String>,
     onAction: (buttonId: String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    scale: Float = 1.0f
 ) {
     val view = LocalView.current
     val allButtons = remember { getFormatBarButtonDefinitions() }
@@ -59,8 +61,14 @@ fun MarkdownFormatBar(
 
     if (visibleButtons.isEmpty()) return
 
+    val btnSize = (38 * scale).dp
+    val barCorner = (14 * scale).dp
+    val padH = (6 * scale).dp
+    val padV = (2 * scale).dp
+    val spacing = (4 * scale).dp
+
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(barCorner),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
         border = BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.45f)),
         shadowElevation = 5.dp,
@@ -69,15 +77,15 @@ fun MarkdownFormatBar(
         Row(
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 6.dp, vertical = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(horizontal = padH, vertical = padV),
+            horizontalArrangement = Arrangement.spacedBy(spacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             visibleButtons.forEach { btn ->
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .size(btnSize)
+                        .clip(RoundedCornerShape((8 * scale).dp))
                         .clickable {
                             try {
                                 view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -87,7 +95,12 @@ fun MarkdownFormatBar(
                         .testTag("format_btn_${btn.id}"),
                     contentAlignment = Alignment.Center
                 ) {
-                    btn.renderIcon()
+                    Box(
+                        modifier = Modifier.scale(scale.coerceIn(0.6f, 1.4f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        btn.renderIcon()
+                    }
                 }
             }
         }

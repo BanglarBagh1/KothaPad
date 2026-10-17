@@ -281,6 +281,26 @@ fun SettingsScreen(
     onShowWordCountChange: (Boolean) -> Unit,
     onOpenNotesManagerSettings: () -> Unit = {},
     onOpenMarkdownSettings: () -> Unit = {},
+    // Floating Layout Settings
+    floatingLayoutSettings: com.example.data.model.FloatingLayoutSettings = com.example.data.model.FloatingLayoutSettings(),
+    onFloatingUseSideRailChange: (Boolean) -> Unit = {},
+    onRailSideChange: (String) -> Unit = {},
+    onRailScaleChange: (Float) -> Unit = {},
+    onRailBottomOffsetChange: (Int) -> Unit = {},
+    onRailSpacingChange: (Int) -> Unit = {},
+    onRailKeepTextClearChange: (Boolean) -> Unit = {},
+    onMoveRailButtonItem: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
+    onResetRailButtonOrder: () -> Unit = {},
+    onToggleScaleChange: (Float) -> Unit = {},
+    onToggleBottomOffsetChange: (Int) -> Unit = {},
+    onToggleGapChange: (Int) -> Unit = {},
+    onFormatBarScaleChange: (Float) -> Unit = {},
+    onFormatBarBottomOffsetChange: (Int) -> Unit = {},
+    onFormatBarWidthPercentChange: (Int) -> Unit = {},
+    onFormatBarAlignmentChange: (String) -> Unit = {},
+    onWaveformScaleChange: (Float) -> Unit = {},
+    onWaveformShowChange: (Boolean) -> Unit = {},
+    onResetFloatingLayout: () -> Unit = {},
     // Backup & Restore Callbacks
     onExportBackup: (Uri, (Result<BackupSummary>) -> Unit) -> Unit = { _, _ -> },
     onValidateBackup: (Uri, (Result<ParsedBackupData>) -> Unit) -> Unit = { _, _ -> },
@@ -366,7 +386,8 @@ fun SettingsScreen(
         toolbarItemOrder, toolbarHiddenItems,
         micButtonSize, micButtonShape, micButtonColor, micButtonPosition, micButtonOffsetY,
         statusChipStyle, uiDensity, cornerRadiusDp, dictationAnimationStyle, hapticsLevel,
-        pipelineSpacing, pipelineAutoCap, pipelineCommands, needsDndPermission
+        pipelineSpacing, pipelineAutoCap, pipelineCommands, needsDndPermission,
+        floatingLayoutSettings
     ) {
         listOf(
             // 0. Notes Manager Settings Entry Section
@@ -474,6 +495,176 @@ fun SettingsScreen(
                                     importError = false
                                     showImportDialog = true
                                 }
+                            )
+                        )
+                    )
+                )
+            ),
+
+            // Floating layout Section (placed next to keyboard size setting)
+            SettingHeadlineSection(
+                id = "floating_layout",
+                title = "Floating layout",
+                subtitle = "Side rail, button order, format bar & waveform positioning",
+                icon = Icons.Outlined.Tune,
+                items = listOf(
+                    SettingItem.Switch(
+                        id = "use_side_rail",
+                        title = "Use side rail layout",
+                        subtitle = "Slim vertical column of action buttons anchored above keyboard",
+                        checked = floatingLayoutSettings.useSideRail,
+                        onCheckedChange = onFloatingUseSideRailChange
+                    ),
+                    SettingItem.ChipGroup(
+                        id = "rail_side",
+                        title = "Rail: Side",
+                        subtitle = "Screen edge position of the vertical rail",
+                        options = listOf(
+                            ChipOption("RIGHT", "Right (Default)"),
+                            ChipOption("LEFT", "Left")
+                        ),
+                        selectedKey = floatingLayoutSettings.railSide,
+                        onOptionSelected = onRailSideChange
+                    ),
+                    SettingItem.Slider(
+                        id = "rail_scale",
+                        title = "Rail: Size Scale",
+                        value = floatingLayoutSettings.railScale,
+                        valueRange = 0.5f..1.5f,
+                        steps = 20,
+                        displayValue = "${"%.2f".format(floatingLayoutSettings.railScale)}x",
+                        onValueChange = onRailScaleChange
+                    ),
+                    SettingItem.Slider(
+                        id = "rail_bottom_offset",
+                        title = "Rail: Bottom Offset Above Keyboard",
+                        value = floatingLayoutSettings.railBottomOffsetDp.toFloat(),
+                        valueRange = 0f..200f,
+                        steps = 40,
+                        displayValue = "${floatingLayoutSettings.railBottomOffsetDp} dp",
+                        onValueChange = { onRailBottomOffsetChange(it.toInt()) }
+                    ),
+                    SettingItem.Slider(
+                        id = "rail_spacing",
+                        title = "Rail: Spacing Between Buttons",
+                        value = floatingLayoutSettings.railSpacingDp.toFloat(),
+                        valueRange = 0f..16f,
+                        steps = 16,
+                        displayValue = "${floatingLayoutSettings.railSpacingDp} dp",
+                        onValueChange = { onRailSpacingChange(it.toInt()) }
+                    ),
+                    SettingItem.Switch(
+                        id = "rail_keep_text_clear",
+                        title = "Keep text clear of rail",
+                        subtitle = "Reserves editor side margin so text never slides behind the rail",
+                        checked = floatingLayoutSettings.keepTextClearOfRail,
+                        onCheckedChange = onRailKeepTextClearChange
+                    ),
+                    SettingItem.CustomContent(
+                        id = "rail_button_order_control",
+                        content = {
+                            RailButtonOrderReorderControl(
+                                railButtonOrder = floatingLayoutSettings.railButtonOrder,
+                                onMoveItem = onMoveRailButtonItem,
+                                onResetOrder = onResetRailButtonOrder
+                            )
+                        }
+                    ),
+                    SettingItem.Slider(
+                        id = "toggle_scale",
+                        title = "Reading/Edit Toggle: Size Scale",
+                        value = floatingLayoutSettings.toggleScale,
+                        valueRange = 0.5f..1.5f,
+                        steps = 20,
+                        displayValue = "${"%.2f".format(floatingLayoutSettings.toggleScale)}x",
+                        onValueChange = onToggleScaleChange
+                    ),
+                    SettingItem.Slider(
+                        id = "toggle_bottom_offset",
+                        title = "Reading/Edit Toggle: Bottom Offset",
+                        subtitle = "Offset above active keyboard",
+                        value = floatingLayoutSettings.toggleBottomOffsetDp.toFloat(),
+                        valueRange = 0f..200f,
+                        steps = 40,
+                        displayValue = "${floatingLayoutSettings.toggleBottomOffsetDp} dp",
+                        onValueChange = { onToggleBottomOffsetChange(it.toInt()) }
+                    ),
+                    SettingItem.Slider(
+                        id = "toggle_gap",
+                        title = "Reading/Edit Toggle: Gap to Neighbors",
+                        value = floatingLayoutSettings.toggleGapDp.toFloat(),
+                        valueRange = 0f..24f,
+                        steps = 24,
+                        displayValue = "${floatingLayoutSettings.toggleGapDp} dp",
+                        onValueChange = { onToggleGapChange(it.toInt()) }
+                    ),
+                    SettingItem.Slider(
+                        id = "format_bar_scale",
+                        title = "Format Bar: Size Scale",
+                        subtitle = "Scales height, icons and padding together",
+                        value = floatingLayoutSettings.formatBarScale,
+                        valueRange = 0.5f..1.5f,
+                        steps = 20,
+                        displayValue = "${"%.2f".format(floatingLayoutSettings.formatBarScale)}x",
+                        onValueChange = onFormatBarScaleChange
+                    ),
+                    SettingItem.Slider(
+                        id = "format_bar_bottom_offset",
+                        title = "Format Bar: Bottom Offset",
+                        value = floatingLayoutSettings.formatBarBottomOffsetDp.toFloat(),
+                        valueRange = 0f..200f,
+                        steps = 40,
+                        displayValue = "${floatingLayoutSettings.formatBarBottomOffsetDp} dp",
+                        onValueChange = { onFormatBarBottomOffsetChange(it.toInt()) }
+                    ),
+                    SettingItem.Slider(
+                        id = "format_bar_width",
+                        title = "Format Bar: Width",
+                        subtitle = "Percentage of available space",
+                        value = floatingLayoutSettings.formatBarWidthPercent.toFloat(),
+                        valueRange = 50f..100f,
+                        steps = 50,
+                        displayValue = "${floatingLayoutSettings.formatBarWidthPercent}%",
+                        onValueChange = { onFormatBarWidthPercentChange(it.toInt()) }
+                    ),
+                    SettingItem.ChipGroup(
+                        id = "format_bar_alignment",
+                        title = "Format Bar: Alignment",
+                        subtitle = "Alignment when width is below 100%",
+                        options = listOf(
+                            ChipOption("LEFT", "Left (Default)"),
+                            ChipOption("CENTER", "Center"),
+                            ChipOption("RIGHT", "Right")
+                        ),
+                        selectedKey = floatingLayoutSettings.formatBarAlignment,
+                        onOptionSelected = onFormatBarAlignmentChange
+                    ),
+                    SettingItem.Slider(
+                        id = "waveform_scale",
+                        title = "Waveform: Size Scale",
+                        subtitle = "Scales height of live dictation waveform",
+                        value = floatingLayoutSettings.waveformScale,
+                        valueRange = 0.5f..1.5f,
+                        steps = 20,
+                        displayValue = "${"%.2f".format(floatingLayoutSettings.waveformScale)}x",
+                        onValueChange = onWaveformScaleChange
+                    ),
+                    SettingItem.Switch(
+                        id = "waveform_show",
+                        title = "Show waveform",
+                        subtitle = "Live audio wave animation while recording",
+                        checked = floatingLayoutSettings.showWaveform,
+                        onCheckedChange = onWaveformShowChange
+                    ),
+                    SettingItem.ButtonRow(
+                        id = "reset_floating_layout_row",
+                        title = "Reset Floating Layout",
+                        subtitle = "Restore all layout sizes, positions, scales and order to defaults",
+                        buttons = listOf(
+                            SettingButtonOption(
+                                label = "Reset layout to defaults",
+                                isDestructive = true,
+                                onClick = onResetFloatingLayout
                             )
                         )
                     )

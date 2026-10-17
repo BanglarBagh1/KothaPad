@@ -241,6 +241,10 @@ class EditorViewModel(
     val markdownSettings: StateFlow<com.example.markdown.MarkdownSettings> = markdownSettingsRepository.settingsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.markdown.MarkdownSettings())
 
+    // Floating Controls Layout ("Side Rail") Flow
+    val floatingLayoutSettings: StateFlow<com.example.data.model.FloatingLayoutSettings> = preferencesManager.floatingLayoutSettings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.model.FloatingLayoutSettings())
+
     // UI state
     // userWantsBuiltIn reflects the toggle in the toolbar / settings
     private val _userWantsBuiltInKeyboard = MutableStateFlow(true)
@@ -1561,6 +1565,35 @@ class EditorViewModel(
     fun setCornerRadiusDp(radius: Int) = viewModelScope.launch { preferencesManager.setCornerRadiusDp(radius) }
     fun setDictationAnimationStyle(style: String) = viewModelScope.launch { preferencesManager.setDictationAnimationStyle(style) }
     fun setHapticsLevel(level: String) = viewModelScope.launch { preferencesManager.setHapticsLevel(level) }
+
+    // Floating Controls Layout ("Side Rail") Methods
+    fun setFloatingUseSideRail(enabled: Boolean) = viewModelScope.launch { preferencesManager.setFloatingUseSideRail(enabled) }
+    fun setRailSide(side: String) = viewModelScope.launch { preferencesManager.setRailSide(side) }
+    fun setRailScale(scale: Float) = viewModelScope.launch { preferencesManager.setRailScale(scale) }
+    fun setRailBottomOffsetDp(offset: Int) = viewModelScope.launch { preferencesManager.setRailBottomOffsetDp(offset) }
+    fun setRailSpacingDp(spacing: Int) = viewModelScope.launch { preferencesManager.setRailSpacingDp(spacing) }
+    fun setRailKeepTextClear(keepClear: Boolean) = viewModelScope.launch { preferencesManager.setRailKeepTextClear(keepClear) }
+    fun moveRailButtonItem(fromIndex: Int, toIndex: Int) {
+        val currentOrder = floatingLayoutSettings.value.railButtonOrder.toMutableList()
+        if (fromIndex in currentOrder.indices && toIndex in currentOrder.indices) {
+            val item = currentOrder.removeAt(fromIndex)
+            currentOrder.add(toIndex, item)
+            viewModelScope.launch { preferencesManager.setRailButtonOrder(currentOrder) }
+        }
+    }
+    fun resetRailButtonOrder() = viewModelScope.launch {
+        preferencesManager.setRailButtonOrder(com.example.data.model.FloatingLayoutSettings.DEFAULT_RAIL_BUTTON_ORDER)
+    }
+    fun setToggleScale(scale: Float) = viewModelScope.launch { preferencesManager.setToggleScale(scale) }
+    fun setToggleBottomOffsetDp(offset: Int) = viewModelScope.launch { preferencesManager.setToggleBottomOffsetDp(offset) }
+    fun setToggleGapDp(gap: Int) = viewModelScope.launch { preferencesManager.setToggleGapDp(gap) }
+    fun setFormatBarScale(scale: Float) = viewModelScope.launch { preferencesManager.setFormatBarScale(scale) }
+    fun setFormatBarBottomOffsetDp(offset: Int) = viewModelScope.launch { preferencesManager.setFormatBarBottomOffsetDp(offset) }
+    fun setFormatBarWidthPercent(percent: Int) = viewModelScope.launch { preferencesManager.setFormatBarWidthPercent(percent) }
+    fun setFormatBarAlignment(align: String) = viewModelScope.launch { preferencesManager.setFormatBarAlignment(align) }
+    fun setWaveformScale(scale: Float) = viewModelScope.launch { preferencesManager.setWaveformScale(scale) }
+    fun setWaveformShow(show: Boolean) = viewModelScope.launch { preferencesManager.setWaveformShow(show) }
+    fun resetFloatingLayoutToDefaults() = viewModelScope.launch { preferencesManager.resetFloatingLayoutToDefaults() }
 
     // Notes Manager Settings Flows & Methods
     val newNoteLocationMode: StateFlow<String> = preferencesManager.newNoteLocationMode

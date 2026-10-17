@@ -209,6 +209,7 @@ fun EditorScreen(
     val newNoteNamingRule by viewModel.newNoteNamingRule.collectAsState()
     val newNoteLocationMode by viewModel.newNoteLocationMode.collectAsState()
     val markdownSettings by viewModel.markdownSettings.collectAsState()
+    val floatingLayoutSettings by viewModel.floatingLayoutSettings.collectAsState()
 
     // Editor New Note Destination Dialog States
     var showNewNoteDialogFromEditor by remember { mutableStateOf(false) }
@@ -641,12 +642,35 @@ fun EditorScreen(
                     }
                 }
 
+                val isRecordingState = dictationState !is DictationState.Idle
+                val railScale = floatingLayoutSettings.railScale.coerceIn(0.5f, 1.5f)
+                val railClearance = (48 * railScale).dp + 12.dp
+                val isRailLeft = floatingLayoutSettings.railSide.uppercase() == "LEFT"
+
+                val editorStartPad = marginDp.dp + if (floatingLayoutSettings.useSideRail && floatingLayoutSettings.keepTextClearOfRail && isRailLeft && !isReadingMode) railClearance else 0.dp
+                val editorEndPad = marginDp.dp + if (floatingLayoutSettings.useSideRail && floatingLayoutSettings.keepTextClearOfRail && !isRailLeft && !isReadingMode) railClearance else 0.dp
+
+                val maxBottomRowHeight = maxOf(40.dp * floatingLayoutSettings.formatBarScale, 40.dp * floatingLayoutSettings.toggleScale, 48.dp * railScale)
+                val maxBottomOffset = maxOf(floatingLayoutSettings.railBottomOffsetDp.dp, floatingLayoutSettings.toggleBottomOffsetDp.dp, floatingLayoutSettings.formatBarBottomOffsetDp.dp)
+                val waveHeight = if (isRecordingState && floatingLayoutSettings.showWaveform) (36.dp * floatingLayoutSettings.waveformScale + 8.dp) else 0.dp
+                val reservedControlsHeight = if (floatingLayoutSettings.useSideRail && !isReadingMode) {
+                    maxBottomRowHeight + maxBottomOffset + waveHeight + 20.dp
+                } else {
+                    0.dp
+                }
+
+                val animatedReservedControlsHeight by androidx.compose.animation.core.animateDpAsState(
+                    targetValue = reservedControlsHeight,
+                    animationSpec = tween(durationMillis = 200),
+                    label = "reserved_controls_height"
+                )
+
                 // Editor takes all space
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
-                        .padding(horizontal = marginDp.dp, vertical = 12.dp)
+                        .padding(start = editorStartPad, end = editorEndPad, top = 12.dp, bottom = 12.dp)
                         .then(
                             if (maxWidthDp > 0) Modifier.widthIn(max = maxWidthDp.dp).align(Alignment.TopCenter)
                             else Modifier
@@ -828,7 +852,7 @@ fun EditorScreen(
                         val bottomSpacerHeight = remember(viewportMaxHeight) {
                             (viewportMaxHeight * 0.65f).coerceAtLeast(200.dp)
                         }
-                        Spacer(modifier = Modifier.height(bottomSpacerHeight))
+                        Spacer(modifier = Modifier.height(bottomSpacerHeight + animatedReservedControlsHeight))
                     }
                 }
 
@@ -868,41 +892,16 @@ fun EditorScreen(
                         }
                     }
                 } else {
-                    val isRecording = dictationState !is DictationState.Idle
-
                     val isKeyboardOpen = builtInKeyboardVisible || isImeVisible
-                    val showFormatBar = markdownSettings.markdownEnabled &&
-                            markdownSettings.formatBarEnabled &&
-                            isTextFieldFocused &&
-                            isKeyboardOpen &&
-                            !isRecording
 
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        if (showFormatBar) {
-                            com.example.markdown.MarkdownFormatBar(
-                                enabledButtonIds = markdownSettings.formatBarButtons,
-                                onAction = { buttonId ->
-                                    val newTfv = com.example.markdown.MarkdownActions.applyActionById(buttonId, textFieldValue)
-                                    viewModel.updateTextFieldValue(newTfv, isUserTyping = true)
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 2.dp)
-                            )
-                        }
-
-                        // Bottom Floating Cluster
-                        EditorFloatingCluster(
-                            canUndo = canUndo,
-                            canRedo = canRedo,
+                    if (floatingLayoutSettings.useSideRail) {
+                        EditorSideRailLayout(
+                            settings = floatingLayoutSettings,
                             dictationState = dictationState,
                             dictationMode = currentDictationMode,
                             audioLevelRms = audioLevelRms,
+                            canUndo = canUndo,
+                            canRedo = canRedo,
                             onUndoClick = { viewModel.undo() },
                             onRedoClick = { viewModel.redo() },
                             onCopyClick = {
@@ -918,15 +917,79 @@ fun EditorScreen(
                             onModeSelect = { mode -> viewModel.setDictationMode(mode) },
                             onPushToTalkPress = { isPressed -> viewModel.onPushToTalkPress(isPressed) },
                             onReadingModeClick = { viewModel.setReadingMode(true) },
-                            modifier = Modifier.fillMaxWidth(),
-                            micButtonSize = micButtonSize,
-                            micButtonShape = micButtonShape,
+                            markdownSettings = markdownSettings,
+                            onFormatBarAction = { buttonId ->
+                                val newTfv = com.example.markdown.MarkdownActions.applyActionById(buttonId, textFieldValue)
+                                viewModel.updateTextFieldValue(newTfv, isUserTyping = true)
+                            },
+                            isTextFieldFocused = isTextFieldFocused,
+                            isKeyboardOpen = isKeyboardOpen,
                             micButtonColor = micButtonColor,
-                            micButtonPosition = micButtonPosition,
-                            micButtonOffsetY = micButtonOffsetY,
                             dictationAnimationStyle = dictationAnimationStyle,
-                            hapticsLevel = hapticsLevel
+                            hapticsLevel = hapticsLevel,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
                         )
+                    } else {
+                        val isRecording = dictationState !is DictationState.Idle
+                        val showFormatBar = markdownSettings.markdownEnabled &&
+                                markdownSettings.formatBarEnabled &&
+                                isTextFieldFocused &&
+                                isKeyboardOpen &&
+                                !isRecording
+
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (showFormatBar) {
+                                com.example.markdown.MarkdownFormatBar(
+                                    enabledButtonIds = markdownSettings.formatBarButtons,
+                                    onAction = { buttonId ->
+                                        val newTfv = com.example.markdown.MarkdownActions.applyActionById(buttonId, textFieldValue)
+                                        viewModel.updateTextFieldValue(newTfv, isUserTyping = true)
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            // Bottom Floating Cluster
+                            EditorFloatingCluster(
+                                canUndo = canUndo,
+                                canRedo = canRedo,
+                                dictationState = dictationState,
+                                dictationMode = currentDictationMode,
+                                audioLevelRms = audioLevelRms,
+                                onUndoClick = { viewModel.undo() },
+                                onRedoClick = { viewModel.redo() },
+                                onCopyClick = {
+                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("KothaPad Note", textFieldValue.text)
+                                    clipboard.setPrimaryClip(clip)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Note text copied to clipboard")
+                                    }
+                                },
+                                onMicClick = { viewModel.toggleDictation() },
+                                onMicLongClick = { },
+                                onModeSelect = { mode -> viewModel.setDictationMode(mode) },
+                                onPushToTalkPress = { isPressed -> viewModel.onPushToTalkPress(isPressed) },
+                                onReadingModeClick = { viewModel.setReadingMode(true) },
+                                modifier = Modifier.fillMaxWidth(),
+                                micButtonSize = micButtonSize,
+                                micButtonShape = micButtonShape,
+                                micButtonColor = micButtonColor,
+                                micButtonPosition = micButtonPosition,
+                                micButtonOffsetY = micButtonOffsetY,
+                                dictationAnimationStyle = dictationAnimationStyle,
+                                hapticsLevel = hapticsLevel
+                            )
+                        }
                     }
                 }
             }

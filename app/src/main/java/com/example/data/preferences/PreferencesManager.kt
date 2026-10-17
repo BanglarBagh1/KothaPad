@@ -132,6 +132,24 @@ class PreferencesManager(private val context: Context) {
         val KEY_AFTER_CREATING_NOTE = stringPreferencesKey("after_creating_note")
         val KEY_LAST_ACTIVE_FOLDER = stringPreferencesKey("last_active_folder")
 
+        // Floating Controls Layout ("Side Rail") Keys
+        val KEY_FLOATING_USE_SIDE_RAIL = booleanPreferencesKey("floating_use_side_rail")
+        val KEY_RAIL_SIDE = stringPreferencesKey("rail_side")
+        val KEY_RAIL_SCALE = floatPreferencesKey("rail_scale")
+        val KEY_RAIL_BOTTOM_OFFSET_DP = intPreferencesKey("rail_bottom_offset_dp")
+        val KEY_RAIL_SPACING_DP = intPreferencesKey("rail_spacing_dp")
+        val KEY_RAIL_KEEP_TEXT_CLEAR = booleanPreferencesKey("rail_keep_text_clear")
+        val KEY_RAIL_BUTTON_ORDER = stringPreferencesKey("rail_button_order")
+        val KEY_TOGGLE_SCALE = floatPreferencesKey("toggle_scale")
+        val KEY_TOGGLE_BOTTOM_OFFSET_DP = intPreferencesKey("toggle_bottom_offset_dp")
+        val KEY_TOGGLE_GAP_DP = intPreferencesKey("toggle_gap_dp")
+        val KEY_FORMAT_BAR_SCALE = floatPreferencesKey("format_bar_scale")
+        val KEY_FORMAT_BAR_BOTTOM_OFFSET_DP = intPreferencesKey("format_bar_bottom_offset_dp")
+        val KEY_FORMAT_BAR_WIDTH_PERCENT = intPreferencesKey("format_bar_width_percent")
+        val KEY_FORMAT_BAR_ALIGNMENT = stringPreferencesKey("format_bar_alignment")
+        val KEY_WAVEFORM_SCALE = floatPreferencesKey("waveform_scale")
+        val KEY_WAVEFORM_SHOW = booleanPreferencesKey("waveform_show")
+
         val KNOWN_PREF_TYPES: Map<String, PrefType> = mapOf(
             KEY_DICTATION_MODE.name to PrefType.STRING,
             KEY_TIMED_MINUTES.name to PrefType.INT,
@@ -226,7 +244,23 @@ class PreferencesManager(private val context: Context) {
             "md_auto_continue_lists" to PrefType.BOOLEAN,
             "md_format_bar_enabled" to PrefType.BOOLEAN,
             "md_format_bar_buttons" to PrefType.STRING,
-            "md_tappable_checkboxes" to PrefType.BOOLEAN
+            "md_tappable_checkboxes" to PrefType.BOOLEAN,
+            KEY_FLOATING_USE_SIDE_RAIL.name to PrefType.BOOLEAN,
+            KEY_RAIL_SIDE.name to PrefType.STRING,
+            KEY_RAIL_SCALE.name to PrefType.FLOAT,
+            KEY_RAIL_BOTTOM_OFFSET_DP.name to PrefType.INT,
+            KEY_RAIL_SPACING_DP.name to PrefType.INT,
+            KEY_RAIL_KEEP_TEXT_CLEAR.name to PrefType.BOOLEAN,
+            KEY_RAIL_BUTTON_ORDER.name to PrefType.STRING,
+            KEY_TOGGLE_SCALE.name to PrefType.FLOAT,
+            KEY_TOGGLE_BOTTOM_OFFSET_DP.name to PrefType.INT,
+            KEY_TOGGLE_GAP_DP.name to PrefType.INT,
+            KEY_FORMAT_BAR_SCALE.name to PrefType.FLOAT,
+            KEY_FORMAT_BAR_BOTTOM_OFFSET_DP.name to PrefType.INT,
+            KEY_FORMAT_BAR_WIDTH_PERCENT.name to PrefType.INT,
+            KEY_FORMAT_BAR_ALIGNMENT.name to PrefType.STRING,
+            KEY_WAVEFORM_SCALE.name to PrefType.FLOAT,
+            KEY_WAVEFORM_SHOW.name to PrefType.BOOLEAN
         )
 
         val KNOWN_SYNC_PREF_TYPES: Map<String, PrefType> = mapOf(
@@ -572,6 +606,65 @@ class PreferencesManager(private val context: Context) {
             setLastActiveFolderSync(folder)
             context.dataStore.edit { it[KEY_LAST_ACTIVE_FOLDER] = folder }
         }
+    }
+
+    // Floating Controls Layout ("Side Rail") Flow & Setters
+    val floatingLayoutSettings: Flow<com.example.data.model.FloatingLayoutSettings> = context.dataStore.data.map { prefs ->
+        com.example.data.model.FloatingLayoutSettings(
+            useSideRail = prefs[KEY_FLOATING_USE_SIDE_RAIL] ?: true,
+            railSide = prefs[KEY_RAIL_SIDE] ?: "RIGHT",
+            railScale = prefs[KEY_RAIL_SCALE] ?: 1.0f,
+            railBottomOffsetDp = prefs[KEY_RAIL_BOTTOM_OFFSET_DP] ?: 8,
+            railSpacingDp = prefs[KEY_RAIL_SPACING_DP] ?: 6,
+            keepTextClearOfRail = prefs[KEY_RAIL_KEEP_TEXT_CLEAR] ?: true,
+            railButtonOrder = com.example.data.model.FloatingLayoutSettings.parseOrder(prefs[KEY_RAIL_BUTTON_ORDER]),
+            toggleScale = prefs[KEY_TOGGLE_SCALE] ?: 1.0f,
+            toggleBottomOffsetDp = prefs[KEY_TOGGLE_BOTTOM_OFFSET_DP] ?: 8,
+            toggleGapDp = prefs[KEY_TOGGLE_GAP_DP] ?: 8,
+            formatBarScale = prefs[KEY_FORMAT_BAR_SCALE] ?: 1.0f,
+            formatBarBottomOffsetDp = prefs[KEY_FORMAT_BAR_BOTTOM_OFFSET_DP] ?: 8,
+            formatBarWidthPercent = prefs[KEY_FORMAT_BAR_WIDTH_PERCENT] ?: 100,
+            formatBarAlignment = prefs[KEY_FORMAT_BAR_ALIGNMENT] ?: "LEFT",
+            waveformScale = prefs[KEY_WAVEFORM_SCALE] ?: 1.0f,
+            showWaveform = prefs[KEY_WAVEFORM_SHOW] ?: true
+        )
+    }
+
+    suspend fun setFloatingUseSideRail(enabled: Boolean) = context.dataStore.edit { it[KEY_FLOATING_USE_SIDE_RAIL] = enabled }
+    suspend fun setRailSide(side: String) = context.dataStore.edit { it[KEY_RAIL_SIDE] = side }
+    suspend fun setRailScale(scale: Float) = context.dataStore.edit { it[KEY_RAIL_SCALE] = scale }
+    suspend fun setRailBottomOffsetDp(offsetDp: Int) = context.dataStore.edit { it[KEY_RAIL_BOTTOM_OFFSET_DP] = offsetDp }
+    suspend fun setRailSpacingDp(spacingDp: Int) = context.dataStore.edit { it[KEY_RAIL_SPACING_DP] = spacingDp }
+    suspend fun setRailKeepTextClear(keepClear: Boolean) = context.dataStore.edit { it[KEY_RAIL_KEEP_TEXT_CLEAR] = keepClear }
+    suspend fun setRailButtonOrder(order: List<String>) = context.dataStore.edit { it[KEY_RAIL_BUTTON_ORDER] = com.example.data.model.FloatingLayoutSettings.orderToString(order) }
+    suspend fun setToggleScale(scale: Float) = context.dataStore.edit { it[KEY_TOGGLE_SCALE] = scale }
+    suspend fun setToggleBottomOffsetDp(offsetDp: Int) = context.dataStore.edit { it[KEY_TOGGLE_BOTTOM_OFFSET_DP] = offsetDp }
+    suspend fun setToggleGapDp(gapDp: Int) = context.dataStore.edit { it[KEY_TOGGLE_GAP_DP] = gapDp }
+    suspend fun setFormatBarScale(scale: Float) = context.dataStore.edit { it[KEY_FORMAT_BAR_SCALE] = scale }
+    suspend fun setFormatBarBottomOffsetDp(offsetDp: Int) = context.dataStore.edit { it[KEY_FORMAT_BAR_BOTTOM_OFFSET_DP] = offsetDp }
+    suspend fun setFormatBarWidthPercent(percent: Int) = context.dataStore.edit { it[KEY_FORMAT_BAR_WIDTH_PERCENT] = percent }
+    suspend fun setFormatBarAlignment(alignment: String) = context.dataStore.edit { it[KEY_FORMAT_BAR_ALIGNMENT] = alignment }
+    suspend fun setWaveformScale(scale: Float) = context.dataStore.edit { it[KEY_WAVEFORM_SCALE] = scale }
+    suspend fun setWaveformShow(show: Boolean) = context.dataStore.edit { it[KEY_WAVEFORM_SHOW] = show }
+
+    suspend fun resetFloatingLayoutToDefaults() = context.dataStore.edit { prefs ->
+        val defaults = com.example.data.model.FloatingLayoutSettings()
+        prefs[KEY_FLOATING_USE_SIDE_RAIL] = defaults.useSideRail
+        prefs[KEY_RAIL_SIDE] = defaults.railSide
+        prefs[KEY_RAIL_SCALE] = defaults.railScale
+        prefs[KEY_RAIL_BOTTOM_OFFSET_DP] = defaults.railBottomOffsetDp
+        prefs[KEY_RAIL_SPACING_DP] = defaults.railSpacingDp
+        prefs[KEY_RAIL_KEEP_TEXT_CLEAR] = defaults.keepTextClearOfRail
+        prefs[KEY_RAIL_BUTTON_ORDER] = com.example.data.model.FloatingLayoutSettings.orderToString(defaults.railButtonOrder)
+        prefs[KEY_TOGGLE_SCALE] = defaults.toggleScale
+        prefs[KEY_TOGGLE_BOTTOM_OFFSET_DP] = defaults.toggleBottomOffsetDp
+        prefs[KEY_TOGGLE_GAP_DP] = defaults.toggleGapDp
+        prefs[KEY_FORMAT_BAR_SCALE] = defaults.formatBarScale
+        prefs[KEY_FORMAT_BAR_BOTTOM_OFFSET_DP] = defaults.formatBarBottomOffsetDp
+        prefs[KEY_FORMAT_BAR_WIDTH_PERCENT] = defaults.formatBarWidthPercent
+        prefs[KEY_FORMAT_BAR_ALIGNMENT] = defaults.formatBarAlignment
+        prefs[KEY_WAVEFORM_SCALE] = defaults.waveformScale
+        prefs[KEY_WAVEFORM_SHOW] = defaults.showWaveform
     }
 
     suspend fun getAllPreferencesForBackup(): JSONObject {

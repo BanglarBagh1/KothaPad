@@ -205,6 +205,7 @@ class MainActivity : ComponentActivity() {
                             val uiDensity by viewModel.uiDensity.collectAsState()
                             val dictationAnimationStyle by viewModel.dictationAnimationStyle.collectAsState()
                             val hapticsLevel by viewModel.hapticsLevel.collectAsState()
+                            val floatingLayoutSettings by viewModel.floatingLayoutSettings.collectAsState()
 
                             SettingsScreen(
                                 dictationMode = dictationMode,
@@ -306,6 +307,25 @@ class MainActivity : ComponentActivity() {
                                 onResetNoteMetricsOrder = { viewModel.resetNoteMetricsOrder() },
                                 onOpenNotesManagerSettings = { viewModel.openNotesManagerSettings(fromNoteManager = false) },
                                 onOpenMarkdownSettings = { viewModel.navigateTo("MARKDOWN_SETTINGS") },
+                                floatingLayoutSettings = floatingLayoutSettings,
+                                onFloatingUseSideRailChange = { viewModel.setFloatingUseSideRail(it) },
+                                onRailSideChange = { viewModel.setRailSide(it) },
+                                onRailScaleChange = { viewModel.setRailScale(it) },
+                                onRailBottomOffsetChange = { viewModel.setRailBottomOffsetDp(it) },
+                                onRailSpacingChange = { viewModel.setRailSpacingDp(it) },
+                                onRailKeepTextClearChange = { viewModel.setRailKeepTextClear(it) },
+                                onMoveRailButtonItem = { from, to -> viewModel.moveRailButtonItem(from, to) },
+                                onResetRailButtonOrder = { viewModel.resetRailButtonOrder() },
+                                onToggleScaleChange = { viewModel.setToggleScale(it) },
+                                onToggleBottomOffsetChange = { viewModel.setToggleBottomOffsetDp(it) },
+                                onToggleGapChange = { viewModel.setToggleGapDp(it) },
+                                onFormatBarScaleChange = { viewModel.setFormatBarScale(it) },
+                                onFormatBarBottomOffsetChange = { viewModel.setFormatBarBottomOffsetDp(it) },
+                                onFormatBarWidthPercentChange = { viewModel.setFormatBarWidthPercent(it) },
+                                onFormatBarAlignmentChange = { viewModel.setFormatBarAlignment(it) },
+                                onWaveformScaleChange = { viewModel.setWaveformScale(it) },
+                                onWaveformShowChange = { viewModel.setWaveformShow(it) },
+                                onResetFloatingLayout = { viewModel.resetFloatingLayoutToDefaults() },
                                 onExportBackup = { uri, cb -> viewModel.exportBackup(uri, cb) },
                                 onValidateBackup = { uri, cb -> viewModel.validateBackup(uri, cb) },
                                 onRestoreBackup = { backup, cb -> viewModel.restoreBackup(backup, cb) },
