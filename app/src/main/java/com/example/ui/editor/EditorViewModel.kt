@@ -236,6 +236,11 @@ class EditorViewModel(
     val keyboardEditMode: StateFlow<Boolean> = preferencesManager.keyboardEditMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    // Markdown Settings Flow
+    val markdownSettingsRepository = com.example.markdown.MarkdownSettingsRepository(preferencesManager)
+    val markdownSettings: StateFlow<com.example.markdown.MarkdownSettings> = markdownSettingsRepository.settingsFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.markdown.MarkdownSettings())
+
     // UI state
     // userWantsBuiltIn reflects the toggle in the toolbar / settings
     private val _userWantsBuiltInKeyboard = MutableStateFlow(true)
@@ -523,7 +528,16 @@ class EditorViewModel(
                 insertTextAtSelection(" ")
             }
             KeyActionType.ENTER -> {
-                insertTextAtSelection("\n")
+                if (markdownSettings.value.markdownEnabled && markdownSettings.value.autoContinueLists) {
+                    val continued = com.example.markdown.MarkdownListAutoContinuer.handleEnter(_textFieldValue.value)
+                    if (continued != null) {
+                        updateTextFieldValue(continued)
+                    } else {
+                        insertTextAtSelection("\n")
+                    }
+                } else {
+                    insertTextAtSelection("\n")
+                }
             }
             KeyActionType.NEW_PARAGRAPH -> {
                 insertTextAtSelection("\n\n")
@@ -1457,6 +1471,14 @@ class EditorViewModel(
 
     fun navigateTo(screen: String) {
         _currentScreen.value = screen
+    }
+
+    fun updateMarkdownSettings(transform: (com.example.markdown.MarkdownSettings) -> com.example.markdown.MarkdownSettings) {
+        viewModelScope.launch { markdownSettingsRepository.updateSettings(transform) }
+    }
+
+    fun resetMarkdownSettingsToDefault() {
+        viewModelScope.launch { markdownSettingsRepository.resetToDefaults() }
     }
 
     fun completeOnboarding() {

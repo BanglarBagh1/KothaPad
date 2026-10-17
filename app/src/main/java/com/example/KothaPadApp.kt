@@ -21,6 +21,7 @@ class KothaPadApp : Application() {
     val noteRepository by lazy { NoteRepository(database.noteDao()) }
     val stampRepository by lazy { StampRepository(database.stampDao()) }
     val spokenCommandRepository by lazy { SpokenCommandRepository(database.spokenCommandDao()) }
+    val markdownSettingsRepository by lazy { com.example.markdown.MarkdownSettingsRepository(preferencesManager) }
 
     val speechSupervisor by lazy {
         SpeechSupervisor(this, preferencesManager, applicationScope)

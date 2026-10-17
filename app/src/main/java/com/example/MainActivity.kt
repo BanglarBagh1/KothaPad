@@ -107,6 +107,10 @@ class MainActivity : ComponentActivity() {
                         viewModel.onBackFromNotesManagerSettings()
                     }
 
+                    currentScreen == "MARKDOWN_SETTINGS" -> {
+                        viewModel.navigateTo("SETTINGS")
+                    }
+
                     // Priority 4: Notes list drawer / manager open -> close drawer
                     isNoteManagerOpen -> {
                         viewModel.isNoteManagerOpen.value = false
@@ -301,6 +305,7 @@ class MainActivity : ComponentActivity() {
                                 onToggleNoteMetricVisibility = { viewModel.toggleNoteMetricVisibility(it) },
                                 onResetNoteMetricsOrder = { viewModel.resetNoteMetricsOrder() },
                                 onOpenNotesManagerSettings = { viewModel.openNotesManagerSettings(fromNoteManager = false) },
+                                onOpenMarkdownSettings = { viewModel.navigateTo("MARKDOWN_SETTINGS") },
                                 onExportBackup = { uri, cb -> viewModel.exportBackup(uri, cb) },
                                 onValidateBackup = { uri, cb -> viewModel.validateBackup(uri, cb) },
                                 onRestoreBackup = { backup, cb -> viewModel.restoreBackup(backup, cb) },
@@ -356,6 +361,15 @@ class MainActivity : ComponentActivity() {
                                 onShowNoteMetricsChange = { viewModel.setShowNoteMetricsInList(it) },
                                 onNoteMetricsStyleChange = { viewModel.setNoteMetricsStyle(it) },
                                 onUpdateTrashDays = { viewModel.setTrashAutoEmptyDaysPref(it) }
+                            )
+                        }
+                        "MARKDOWN_SETTINGS" -> {
+                            val markdownSettings by viewModel.markdownSettings.collectAsState()
+                            com.example.markdown.MarkdownSettingsScreen(
+                                settings = markdownSettings,
+                                onUpdateSettings = { viewModel.updateMarkdownSettings(it) },
+                                onResetToDefaults = { viewModel.resetMarkdownSettingsToDefault() },
+                                onBackClick = { viewModel.navigateTo("SETTINGS") }
                             )
                         }
                         else -> {

@@ -206,6 +206,7 @@ fun EditorScreen(
     val askStartRecordingToggle by viewModel.askStartRecordingToggle.collectAsState()
     val newNoteNamingRule by viewModel.newNoteNamingRule.collectAsState()
     val newNoteLocationMode by viewModel.newNoteLocationMode.collectAsState()
+    val markdownSettings by viewModel.markdownSettings.collectAsState()
 
     // Editor New Note Destination Dialog States
     var showNewNoteDialogFromEditor by remember { mutableStateOf(false) }
@@ -650,25 +651,43 @@ fun EditorScreen(
                         )
                 ) {
                     if (isReadingMode) {
-                        SelectionContainer {
-                            Text(
-                                text = textFieldValue.text.ifEmpty { "Empty note" },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("reading_mode_text"),
-                                style = TextStyle(
+                        if (markdownSettings.markdownEnabled) {
+                            com.example.markdown.MarkdownRenderer(
+                                text = textFieldValue.text,
+                                settings = markdownSettings,
+                                baseTextStyle = TextStyle(
                                     fontFamily = fontFam,
                                     fontSize = fontSize.sp,
                                     lineHeight = (fontSize * lineSpacing).sp,
                                     letterSpacing = letterSpacing.sp,
                                     textAlign = textAlignValue,
-                                    color = if (textFieldValue.text.isEmpty()) {
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                    } else {
-                                        MaterialTheme.colorScheme.onBackground
-                                    }
-                                )
+                                    color = MaterialTheme.colorScheme.onBackground
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("reading_mode_text")
                             )
+                        } else {
+                            SelectionContainer {
+                                Text(
+                                    text = textFieldValue.text.ifEmpty { "Empty note" },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("reading_mode_text"),
+                                    style = TextStyle(
+                                        fontFamily = fontFam,
+                                        fontSize = fontSize.sp,
+                                        lineHeight = (fontSize * lineSpacing).sp,
+                                        letterSpacing = letterSpacing.sp,
+                                        textAlign = textAlignValue,
+                                        color = if (textFieldValue.text.isEmpty()) {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                        } else {
+                                            MaterialTheme.colorScheme.onBackground
+                                        }
+                                    )
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.height(bottomSpacerHeight))
                     } else {
@@ -687,6 +706,11 @@ fun EditorScreen(
                         }
 
                         // Main Editable Text Field
+                        val markdownVisualTransformation = com.example.markdown.rememberMarkdownVisualTransformation(
+                            settings = markdownSettings,
+                            baseFontSize = fontSize
+                        )
+
                         key(userWantsBuiltIn) {
                             CompositionLocalProvider(
                                 LocalSoftwareKeyboardController provides customKeyboardController
@@ -706,8 +730,17 @@ fun EditorScreen(
                                     BasicTextField(
                                         value = textFieldValue,
                                         onValueChange = { newValue ->
-                                            viewModel.updateTextFieldValue(newValue)
+                                            val processed = if (markdownSettings.markdownEnabled && markdownSettings.autoContinueLists) {
+                                                com.example.markdown.MarkdownListAutoContinuer.handleValueChange(
+                                                    oldValue = textFieldValue,
+                                                    newValue = newValue
+                                                )
+                                            } else {
+                                                newValue
+                                            }
+                                            viewModel.updateTextFieldValue(processed)
                                         },
+                                        visualTransformation = markdownVisualTransformation,
                                         onTextLayout = { result ->
                                             textLayoutResult = result
                                         },

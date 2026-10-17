@@ -24,6 +24,8 @@ private val Context.dataStore by preferencesDataStore(name = "kothapad_settings"
 
 class PreferencesManager(private val context: Context) {
 
+    val dataStore get() = context.dataStore
+
     private val syncPrefs = context.getSharedPreferences("kothapad_sync_prefs", Context.MODE_PRIVATE)
 
     enum class PrefType {
@@ -202,7 +204,26 @@ class PreferencesManager(private val context: Context) {
             KEY_ASK_START_RECORDING_TOGGLE.name to PrefType.BOOLEAN,
             KEY_NEW_NOTE_NAMING_RULE.name to PrefType.STRING,
             KEY_AFTER_CREATING_NOTE.name to PrefType.STRING,
-            KEY_LAST_ACTIVE_FOLDER.name to PrefType.STRING
+            KEY_LAST_ACTIVE_FOLDER.name to PrefType.STRING,
+            "md_enabled" to PrefType.BOOLEAN,
+            "md_headings" to PrefType.BOOLEAN,
+            "md_bold_italic" to PrefType.BOOLEAN,
+            "md_strikethrough" to PrefType.BOOLEAN,
+            "md_highlight" to PrefType.BOOLEAN,
+            "md_inline_code" to PrefType.BOOLEAN,
+            "md_code_blocks" to PrefType.BOOLEAN,
+            "md_blockquotes" to PrefType.BOOLEAN,
+            "md_lists" to PrefType.BOOLEAN,
+            "md_task_lists" to PrefType.BOOLEAN,
+            "md_links" to PrefType.BOOLEAN,
+            "md_tables" to PrefType.BOOLEAN,
+            "md_horizontal_rule" to PrefType.BOOLEAN,
+            "md_reading_font_scale" to PrefType.FLOAT,
+            "md_live_styling" to PrefType.BOOLEAN,
+            "md_dim_syntax" to PrefType.BOOLEAN,
+            "md_heading_scale" to PrefType.FLOAT,
+            "md_code_monospace" to PrefType.BOOLEAN,
+            "md_auto_continue_lists" to PrefType.BOOLEAN
         )
 
         val KNOWN_SYNC_PREF_TYPES: Map<String, PrefType> = mapOf(

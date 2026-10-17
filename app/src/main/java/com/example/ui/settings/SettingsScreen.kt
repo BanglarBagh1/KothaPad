@@ -280,6 +280,7 @@ fun SettingsScreen(
     onPipelineCommandsChange: (Boolean) -> Unit,
     onShowWordCountChange: (Boolean) -> Unit,
     onOpenNotesManagerSettings: () -> Unit = {},
+    onOpenMarkdownSettings: () -> Unit = {},
     // Backup & Restore Callbacks
     onExportBackup: (Uri, (Result<BackupSummary>) -> Unit) -> Unit = { _, _ -> },
     onValidateBackup: (Uri, (Result<ParsedBackupData>) -> Unit) -> Unit = { _, _ -> },
@@ -383,6 +384,27 @@ fun SettingsScreen(
                             SettingButtonOption(
                                 label = "Open Notes Manager Settings",
                                 onClick = onOpenNotesManagerSettings
+                            )
+                        )
+                    )
+                )
+            ),
+
+            // Markdown Settings Entry Section
+            SettingHeadlineSection(
+                id = "markdown_settings_entry",
+                title = "Markdown",
+                subtitle = "Obsidian-style formatting, reading mode rendering & styling",
+                icon = Icons.Outlined.Tune,
+                items = listOf(
+                    SettingItem.ButtonRow(
+                        id = "open_markdown_settings",
+                        title = "Markdown Settings",
+                        subtitle = "Master toggle, per-element switches & reading font scale",
+                        buttons = listOf(
+                            SettingButtonOption(
+                                label = "Open Markdown Settings",
+                                onClick = onOpenMarkdownSettings
                             )
                         )
                     )
