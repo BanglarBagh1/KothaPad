@@ -367,7 +367,12 @@ class VaultNoteRepository(
 
     private suspend fun loadMetadata(kothaDir: DocumentFile) = withContext(Dispatchers.IO) {
         try {
-            val metaFile = kothaDir.findFile(NOTES_META_FILE) ?: kothaDir.findFile("$NOTES_META_FILE.bak")
+            val children = vaultManager.listChildren(kothaDir)
+            val metaFile = children.firstOrNull {
+                it.name.equals(NOTES_META_FILE, ignoreCase = true) ||
+                it.name.equals("$NOTES_META_FILE.json", ignoreCase = true) ||
+                it.name.equals("$NOTES_META_FILE.bak", ignoreCase = true)
+            }
             if (metaFile == null || !metaFile.exists()) return@withContext
 
             val jsonStr = vaultManager.readText(metaFile)
@@ -435,7 +440,12 @@ class VaultNoteRepository(
 
     private suspend fun loadWorkspace(kothaDir: DocumentFile) = withContext(Dispatchers.IO) {
         try {
-            val wsFile = kothaDir.findFile(WORKSPACE_FILE)
+            val children = vaultManager.listChildren(kothaDir)
+            val wsFile = children.firstOrNull {
+                it.name.equals(WORKSPACE_FILE, ignoreCase = true) ||
+                it.name.equals("$WORKSPACE_FILE.json", ignoreCase = true) ||
+                it.name.equals("$WORKSPACE_FILE.bak", ignoreCase = true)
+            }
             if (wsFile == null || !wsFile.exists()) return@withContext
 
             val jsonStr = vaultManager.readText(wsFile)
@@ -622,13 +632,31 @@ class VaultNoteRepository(
         val oldRelPath = idToPathMap[note.id]
         var entry = oldRelPath?.let { cache[it] }
 
+        // If not in cache by ID mapping, search cache values by note.id
+        if (entry == null) {
+            entry = cache.values.firstOrNull { it.note.id == note.id }
+        }
+
         // If not in cache by ID, search by title and folder
         if (entry == null) {
-            val guessedRel = "${note.folder}/${note.title}.md".trimStart('/')
-            entry = cache[guessedRel]
+            val guessedRel1 = "${note.folder}/${note.title}.md".trimStart('/')
+            val guessedRel2 = "${note.folder}/${note.title}".trimStart('/')
+            val guessedRel3 = if (note.folder.equals(GENERAL_DIR, ignoreCase = true)) "${note.title}.md" else null
+            entry = cache[guessedRel1] ?: cache[guessedRel2] ?: (guessedRel3?.let { cache[it] })
         }
 
         if (entry == null) {
+            entry = cache.values.firstOrNull {
+                it.note.title.equals(note.title, ignoreCase = true) &&
+                it.note.folder.equals(note.folder, ignoreCase = true)
+            }
+        }
+
+        if (entry == null) {
+            if (note.isDeleted) {
+                // If the note was already removed or cannot be found on disk, do NOT recreate or insert a duplicate file!
+                return
+            }
             // If completely missing, treat as insert
             insertInternal(note, vaultDoc)
             return

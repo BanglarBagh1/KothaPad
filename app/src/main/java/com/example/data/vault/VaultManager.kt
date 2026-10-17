@@ -312,49 +312,28 @@ class VaultManager(private val context: Context) {
     ): DocumentFile? = withContext(Dispatchers.IO) {
         try {
             val cleanName = sanitizeFilename(fileName)
-            val tempName = "$cleanName.tmp_${System.currentTimeMillis()}"
-            val tempFile = parentDir.createFile(mimeType, tempName) ?: return@withContext null
-
-            val writeOk = writeText(tempFile, text)
-            if (!writeOk) {
-                tempFile.delete()
-                return@withContext null
+            val children = listChildren(parentDir)
+            val existingFile = children.firstOrNull {
+                it.name.equals(cleanName, ignoreCase = true) ||
+                (cleanName.endsWith(".json", ignoreCase = true) && it.name.equals("$cleanName.json", ignoreCase = true)) ||
+                (cleanName.endsWith(".md", ignoreCase = true) && it.name.equals("$cleanName.md", ignoreCase = true))
             }
-
-            val existingFile = parentDir.findFile(cleanName)
             if (existingFile != null && existingFile.exists()) {
-                val bakName = "$cleanName.bak"
-                val existingBak = parentDir.findFile(bakName)
-                if (existingBak != null && existingBak.exists()) {
-                    existingBak.delete()
-                }
-                existingFile.renameTo(bakName)
+                val ok = writeText(existingFile, text)
+                return@withContext if (ok) existingFile else null
             }
 
-            val renameOk = tempFile.renameTo(cleanName)
-            if (renameOk) {
-                val bakName = "$cleanName.bak"
-                val bakFile = parentDir.findFile(bakName)
-                if (bakFile != null && bakFile.exists()) {
-                    bakFile.delete()
-                }
-                parentDir.findFile(cleanName) ?: tempFile
-            } else {
-                // If renameTo returned false, try restoring the backup and writing directly
-                val bakName = "$cleanName.bak"
-                val bakFile = parentDir.findFile(bakName)
-                if (bakFile != null && bakFile.exists()) {
-                    bakFile.renameTo(cleanName)
-                }
-                tempFile.delete()
-                val target = parentDir.findFile(cleanName) ?: parentDir.createFile(mimeType, cleanName)
-                if (target != null) {
-                    val fallbackOk = writeText(target, text)
-                    if (fallbackOk) target else null
-                } else {
-                    null
-                }
+            // Create new file
+            val baseName = when {
+                cleanName.endsWith(".json", ignoreCase = true) -> cleanName.removeSuffix(".json")
+                cleanName.endsWith(".md", ignoreCase = true) -> cleanName.removeSuffix(".md")
+                else -> cleanName
             }
+            val targetFile = parentDir.createFile(mimeType, baseName)
+                ?: parentDir.createFile(mimeType, cleanName)
+                ?: return@withContext null
+            val writeOk = writeText(targetFile, text)
+            if (writeOk) targetFile else null
         } catch (e: Exception) {
             null
         }

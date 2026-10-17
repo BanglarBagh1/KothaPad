@@ -208,6 +208,7 @@ fun EditorScreen(
     val askStartRecordingToggle by viewModel.askStartRecordingToggle.collectAsState()
     val newNoteNamingRule by viewModel.newNoteNamingRule.collectAsState()
     val newNoteLocationMode by viewModel.newNoteLocationMode.collectAsState()
+    val noteSortOption by viewModel.noteSortOption.collectAsState()
     val markdownSettings by viewModel.markdownSettings.collectAsState()
     val floatingLayoutSettings by viewModel.floatingLayoutSettings.collectAsState()
 
@@ -1026,6 +1027,8 @@ fun EditorScreen(
                 noteMetricsHiddenItems = noteMetricsHiddenItems,
                 expandedFolders = expandedFolders,
                 customFolders = customFolders,
+                currentSortOption = noteSortOption,
+                onSortOptionChange = { viewModel.setNoteSortOption(it) },
                 onOpenSettings = {
                     viewModel.openNotesManagerSettings(fromNoteManager = true)
                 },

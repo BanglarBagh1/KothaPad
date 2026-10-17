@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -155,6 +156,8 @@ fun NotesManagerScreen(
     noteMetricsHiddenItems: Set<String> = emptySet(),
     expandedFolders: Set<String> = setOf("General", "Templates"),
     customFolders: Set<String> = emptySet(),
+    currentSortOption: String = "MODIFIED_DESC",
+    onSortOptionChange: (String) -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onToggleFolderExpanded: (String, Boolean) -> Unit = { _, _ -> },
     onSetAllFoldersExpanded: (Boolean, Set<String>) -> Unit = { _, _ -> },
@@ -237,7 +240,13 @@ fun NotesManagerScreen(
     // Search and Sort states
     var searchQuery by remember { mutableStateOf("") }
     var isSearchVisible by remember { mutableStateOf(false) }
-    var sortOption by remember { mutableStateOf(NoteSortOption.MODIFIED_DESC) }
+    val sortOption = remember(currentSortOption) {
+        try {
+            NoteSortOption.valueOf(currentSortOption)
+        } catch (_: Exception) {
+            NoteSortOption.MODIFIED_DESC
+        }
+    }
     var isSortMenuOpen by remember { mutableStateOf(false) }
 
     // Multi-select state
@@ -327,6 +336,28 @@ fun NotesManagerScreen(
         }
     }
 
+    var selectedFolderPaths by remember { mutableStateOf(setOf<String>()) }
+
+    val onToggleFolderSelect: (String) -> Unit = { folderPath ->
+        val notesInFolder = filteredNotes.filter { it.folder.equals(folderPath, ignoreCase = true) || it.folder.startsWith("$folderPath/") }
+        val idsInFolder = notesInFolder.map { it.id }.toSet()
+        if (selectedFolderPaths.contains(folderPath)) {
+            selectedFolderPaths = selectedFolderPaths - folderPath
+            selectedNoteIds = selectedNoteIds - idsInFolder
+        } else {
+            selectedFolderPaths = selectedFolderPaths + folderPath
+            selectedNoteIds = selectedNoteIds + idsInFolder
+        }
+    }
+
+    val onStartFolderSelect: (String) -> Unit = { folderPath ->
+        isMultiSelectMode = true
+        val notesInFolder = filteredNotes.filter { it.folder.equals(folderPath, ignoreCase = true) || it.folder.startsWith("$folderPath/") }
+        val idsInFolder = notesInFolder.map { it.id }.toSet()
+        selectedFolderPaths = selectedFolderPaths + folderPath
+        selectedNoteIds = selectedNoteIds + idsInFolder
+    }
+
     // Filter templates for search if active
     val filteredTemplates = remember(templates, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -376,8 +407,9 @@ fun NotesManagerScreen(
             TopAppBar(
                 title = {
                     if (isMultiSelectMode) {
+                        val totalSelected = selectedNoteIds.size + selectedFolderPaths.size
                         Text(
-                            text = "${selectedNoteIds.size} selected",
+                            text = if (totalSelected == 0) "Select items" else "$totalSelected selected",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = SaffronPrimary
@@ -475,6 +507,7 @@ fun NotesManagerScreen(
                             if (isMultiSelectMode) {
                                 isMultiSelectMode = false
                                 selectedNoteIds = emptySet()
+                                selectedFolderPaths = emptySet()
                             } else {
                                 onClose()
                             }
@@ -491,7 +524,14 @@ fun NotesManagerScreen(
                     if (isMultiSelectMode) {
                         IconButton(onClick = {
                             val allIds = filteredNotes.map { it.id }.toSet()
-                            selectedNoteIds = if (selectedNoteIds.size == allIds.size) emptySet() else allIds
+                            val allFolders = allActiveFolders.toSet()
+                            if (selectedNoteIds.size == allIds.size && selectedFolderPaths.size == allFolders.size) {
+                                selectedNoteIds = emptySet()
+                                selectedFolderPaths = emptySet()
+                            } else {
+                                selectedNoteIds = allIds
+                                selectedFolderPaths = allFolders
+                            }
                         }) {
                             Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Select all")
                         }
@@ -527,7 +567,7 @@ fun NotesManagerScreen(
         },
         bottomBar = {
             // Multi-Select Action Bar (Merge, Move, Tag, Archive, Delete)
-            AnimatedVisibility(visible = isMultiSelectMode && selectedNoteIds.isNotEmpty()) {
+            AnimatedVisibility(visible = isMultiSelectMode && (selectedNoteIds.isNotEmpty() || selectedFolderPaths.isNotEmpty())) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = AmoledSurfaceVariant,
@@ -537,7 +577,8 @@ fun NotesManagerScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                            .navigationBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -563,15 +604,18 @@ fun NotesManagerScreen(
                         }
 
                         // Move to Folder
-                        IconButton(onClick = {
-                            batchMoveFolderInput = selectedNotes.firstOrNull()?.folder ?: "General"
-                            showBatchMoveDialog = true
-                        }) {
+                        IconButton(
+                            onClick = {
+                                batchMoveFolderInput = selectedNotes.firstOrNull()?.folder ?: "General"
+                                showBatchMoveDialog = true
+                            },
+                            enabled = selectedNotes.isNotEmpty()
+                        ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
                                     imageVector = Icons.Default.DriveFileMove,
                                     contentDescription = "Move",
-                                    tint = SaffronPrimary,
+                                    tint = if (selectedNotes.isNotEmpty()) SaffronPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Text("Move", fontSize = 10.sp)
@@ -579,15 +623,18 @@ fun NotesManagerScreen(
                         }
 
                         // Tag
-                        IconButton(onClick = {
-                            newTagInput = ""
-                            showAddTagDialog = true
-                        }) {
+                        IconButton(
+                            onClick = {
+                                newTagInput = ""
+                                showAddTagDialog = true
+                            },
+                            enabled = selectedNotes.isNotEmpty()
+                        ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
                                     imageVector = Icons.Default.Label,
                                     contentDescription = "Tag",
-                                    tint = SaffronPrimary,
+                                    tint = if (selectedNotes.isNotEmpty()) SaffronPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Text("Tag", fontSize = 10.sp)
@@ -596,16 +643,22 @@ fun NotesManagerScreen(
 
                         // Archive
                         if (currentVaultView == VaultView.ACTIVE) {
-                            IconButton(onClick = {
-                                onArchiveNotes(selectedNotes, true)
-                                isMultiSelectMode = false
-                                selectedNoteIds = emptySet()
-                            }) {
+                            IconButton(
+                                onClick = {
+                                    if (selectedNotes.isNotEmpty()) {
+                                        onArchiveNotes(selectedNotes, true)
+                                    }
+                                    isMultiSelectMode = false
+                                    selectedNoteIds = emptySet()
+                                    selectedFolderPaths = emptySet()
+                                },
+                                enabled = selectedNotes.isNotEmpty()
+                            ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(
                                         imageVector = Icons.Default.Archive,
                                         contentDescription = "Archive",
-                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        tint = if (selectedNotes.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Text("Archive", fontSize = 10.sp)
@@ -616,12 +669,22 @@ fun NotesManagerScreen(
                         // Delete / Trash
                         IconButton(onClick = {
                             if (currentVaultView == VaultView.TRASH) {
-                                onPermanentlyDeleteNotes(selectedNotes)
+                                if (selectedNotes.isNotEmpty()) {
+                                    onPermanentlyDeleteNotes(selectedNotes)
+                                }
                             } else {
-                                onTrashNotes(selectedNotes)
+                                if (selectedNotes.isNotEmpty()) {
+                                    onTrashNotes(selectedNotes)
+                                }
+                            }
+                            selectedFolderPaths.forEach { f ->
+                                if (!f.equals("General", ignoreCase = true)) {
+                                    onDeleteFolder(f, true)
+                                }
                             }
                             isMultiSelectMode = false
                             selectedNoteIds = emptySet()
+                            selectedFolderPaths = emptySet()
                         }) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
@@ -754,7 +817,7 @@ fun NotesManagerScreen(
                                         )
                                     },
                                     onClick = {
-                                        sortOption = opt
+                                        onSortOptionChange(opt.name)
                                         isSortMenuOpen = false
                                     }
                                 )
@@ -1038,6 +1101,12 @@ fun NotesManagerScreen(
                             currentNoteId = currentNoteId,
                             isMultiSelectMode = isMultiSelectMode,
                             selectedNoteIds = selectedNoteIds,
+                            selectedFolderPaths = selectedFolderPaths,
+                            onToggleNoteSelect = { note ->
+                                selectedNoteIds = if (selectedNoteIds.contains(note.id)) selectedNoteIds - note.id else selectedNoteIds + note.id
+                            },
+                            onToggleFolderSelect = onToggleFolderSelect,
+                            onStartFolderSelect = onStartFolderSelect,
                             showMetrics = showNoteMetrics,
                             noteMetricsStyle = noteMetricsStyle,
                             noteMetricsOrder = noteMetricsOrder,
@@ -1798,6 +1867,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.renderFolderTreeNode(
     currentNoteId: Long?,
     isMultiSelectMode: Boolean,
     selectedNoteIds: Set<Long>,
+    selectedFolderPaths: Set<String>,
+    onToggleNoteSelect: (Note) -> Unit,
+    onToggleFolderSelect: (String) -> Unit,
+    onStartFolderSelect: (String) -> Unit,
     showMetrics: Boolean,
     noteMetricsStyle: String,
     noteMetricsOrder: String,
@@ -1829,6 +1902,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.renderFolderTreeNode(
             count = notesInFolder.size,
             isExpanded = isExpanded,
             customIcon = if (node.fullPath.equals("General", ignoreCase = true)) "📁" else null,
+            isMultiSelectMode = isMultiSelectMode,
+            isSelected = selectedFolderPaths.contains(node.fullPath),
+            onToggleSelect = { onToggleFolderSelect(node.fullPath) },
+            onStartMultiSelect = { onStartFolderSelect(node.fullPath) },
             onToggleExpand = {
                 onToggleFolderExpanded(node.fullPath, !isExpanded)
             },
@@ -1878,13 +1955,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.renderFolderTreeNode(
                         noteMetricsHiddenItems = noteMetricsHiddenItems,
                         onNoteClick = {
                             if (isMultiSelectMode) {
-                                // handled in screen
+                                onToggleNoteSelect(note)
                             } else {
                                 onNoteSelect(note)
                                 onClose()
                             }
                         },
-                        onToggleSelect = {},
+                        onToggleSelect = {
+                            onToggleNoteSelect(note)
+                        },
                         onRename = { onRenameNote(note) },
                         onMoveToFolder = { onMoveNote(note) },
                         onPinToggle = { onPinToggle(note) },
@@ -1899,14 +1978,35 @@ private fun androidx.compose.foundation.lazy.LazyListScope.renderFolderTreeNode(
 
         node.subfolders.forEach { subNode ->
             renderFolderTreeNode(
-                subNode, filteredNotes, expandedFolders, currentNoteId,
-                isMultiSelectMode, selectedNoteIds, showMetrics,
-                noteMetricsStyle, noteMetricsOrder, noteMetricsHiddenItems,
-                onToggleFolderExpanded, handlePlusClick, onCreateSubfolder,
-                onRenameFolder, onDeleteFolder, getSortedNotesForFolder,
-                onNoteSelect, onClose, onPinToggle, onArchiveToggle,
-                onDuplicateNote, onRenameNote, onMoveNote, onDeleteNoteConfirm,
-                onStartMultiSelect
+                node = subNode,
+                filteredNotes = filteredNotes,
+                expandedFolders = expandedFolders,
+                currentNoteId = currentNoteId,
+                isMultiSelectMode = isMultiSelectMode,
+                selectedNoteIds = selectedNoteIds,
+                selectedFolderPaths = selectedFolderPaths,
+                onToggleNoteSelect = onToggleNoteSelect,
+                onToggleFolderSelect = onToggleFolderSelect,
+                onStartFolderSelect = onStartFolderSelect,
+                showMetrics = showMetrics,
+                noteMetricsStyle = noteMetricsStyle,
+                noteMetricsOrder = noteMetricsOrder,
+                noteMetricsHiddenItems = noteMetricsHiddenItems,
+                onToggleFolderExpanded = onToggleFolderExpanded,
+                handlePlusClick = handlePlusClick,
+                onCreateSubfolder = onCreateSubfolder,
+                onRenameFolder = onRenameFolder,
+                onDeleteFolder = onDeleteFolder,
+                getSortedNotesForFolder = getSortedNotesForFolder,
+                onNoteSelect = onNoteSelect,
+                onClose = onClose,
+                onPinToggle = onPinToggle,
+                onArchiveToggle = onArchiveToggle,
+                onDuplicateNote = onDuplicateNote,
+                onRenameNote = onRenameNote,
+                onMoveNote = onMoveNote,
+                onDeleteNoteConfirm = onDeleteNoteConfirm,
+                onStartMultiSelect = onStartMultiSelect
             )
         }
     }
@@ -1943,6 +2043,7 @@ private fun IndentedGuideLineContainer(
 /**
  * Folder Tree Header Row: chevron (▸ / ▾) + folder icon + name + count + context menu
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FolderTreeHeader(
     folderName: String,
@@ -1951,6 +2052,10 @@ private fun FolderTreeHeader(
     count: Int,
     isExpanded: Boolean,
     customIcon: String? = null,
+    isMultiSelectMode: Boolean = false,
+    isSelected: Boolean = false,
+    onToggleSelect: () -> Unit = {},
+    onStartMultiSelect: () -> Unit = {},
     onToggleExpand: () -> Unit,
     onNewNoteHere: () -> Unit,
     onCreateSubfolder: (() -> Unit)? = null,
@@ -1965,12 +2070,34 @@ private fun FolderTreeHeader(
 
     Surface(
         shape = RoundedCornerShape(6.dp),
-        color = Color.Transparent,
+        color = when {
+            isSelected -> SaffronPrimary.copy(alpha = 0.2f)
+            else -> Color.Transparent
+        },
+        border = BorderStroke(
+            width = if (isSelected) 1.dp else 0.5.dp,
+            color = if (isSelected) SaffronPrimary else AmoledBorder.copy(alpha = 0.25f)
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = (depth * 14).dp)
             .clip(RoundedCornerShape(6.dp))
-            .clickable(onClick = onToggleExpand)
+            .combinedClickable(
+                onClick = {
+                    if (isMultiSelectMode) {
+                        onToggleSelect()
+                    } else {
+                        onToggleExpand()
+                    }
+                },
+                onLongClick = {
+                    if (!isMultiSelectMode) {
+                        onStartMultiSelect()
+                    } else {
+                        onToggleSelect()
+                    }
+                }
+            )
             .testTag("folder_row_$fullPath")
     ) {
         Row(
@@ -1979,6 +2106,19 @@ private fun FolderTreeHeader(
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Multi-select checkbox for folder
+            if (isMultiSelectMode) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = if (isSelected) "Deselect folder" else "Select folder",
+                    tint = if (isSelected) SaffronPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clickable(onClick = onToggleSelect)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+
             // Rotating Chevron (▸ / ▾)
             Icon(
                 imageVector = Icons.Default.KeyboardArrowRight,
@@ -2052,6 +2192,14 @@ private fun FolderTreeHeader(
                         onClick = {
                             isMenuOpen = false
                             onNewNoteHere()
+                        }
+                    )
+                    DropdownMenuItem(
+                        leadingIcon = { Icon(Icons.Default.Check, contentDescription = null) },
+                        text = { Text("Select folder") },
+                        onClick = {
+                            isMenuOpen = false
+                            onStartMultiSelect()
                         }
                     )
                     if (onCreateSubfolder != null) {
@@ -2145,7 +2293,11 @@ private fun NoteTreeItem(
                 onClick = onNoteClick,
                 onLongClick = {
                     if (!isTrash && !isArchive) {
-                        isMenuOpen = true
+                        if (!isMultiSelectMode) {
+                            onStartMultiSelect?.invoke()
+                        } else {
+                            onToggleSelect()
+                        }
                     }
                 }
             )
