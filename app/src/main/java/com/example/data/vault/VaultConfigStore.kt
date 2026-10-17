@@ -42,6 +42,7 @@ class VaultConfigStore(
 
     companion object {
         const val CONFIG_DIR_NAME = ".KOTHAPAD"
+        const val TRASH_DIR_NAME = "trash"
         const val FILE_SETTINGS = "settings.json"
         const val FILE_NOTES_META = "notes-meta.json"
         const val FILE_WORKSPACE = "workspace.json"
@@ -156,6 +157,26 @@ class VaultConfigStore(
     suspend fun resolveConfigDir(vaultRoot: DocumentFile): DocumentFile? = mutex.withLock {
         withContext(Dispatchers.IO) {
             resolveConfigDirInternal(vaultRoot)
+        }
+    }
+
+    suspend fun getOrCreateTrashDir(vaultRoot: DocumentFile): DocumentFile? = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val configDir = resolveConfigDirInternal(vaultRoot) ?: return@withContext null
+            val children = configDir.listFiles()
+            val existing = children.firstOrNull { it.isDirectory && it.name.equals(TRASH_DIR_NAME, ignoreCase = true) }
+            if (existing != null && existing.exists()) return@withContext existing
+            val created = configDir.createDirectory(TRASH_DIR_NAME)
+            val relisted = configDir.listFiles()
+            relisted.firstOrNull { it.isDirectory && it.name.equals(TRASH_DIR_NAME, ignoreCase = true) } ?: created
+        }
+    }
+
+    suspend fun getTrashDir(vaultRoot: DocumentFile): DocumentFile? = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val configDir = resolveConfigDirInternal(vaultRoot) ?: return@withContext null
+            val children = configDir.listFiles()
+            children.firstOrNull { it.isDirectory && it.name.equals(TRASH_DIR_NAME, ignoreCase = true) }
         }
     }
 

@@ -36,7 +36,9 @@ data class NoteMetadata(
     val highlightColor: String? = null,
     val fontSizeModifier: Float = 0f,
     val tags: String = "",
-    val sessionDurationSec: Long = 0L
+    val sessionDurationSec: Long = 0L,
+    val originalRelPath: String? = null,
+    val trashFileName: String? = null
 )
 
 data class WorkspaceData(
@@ -126,6 +128,7 @@ class VaultNoteRepository(
         const val WORKSPACE_FILE = VaultConfigStore.FILE_WORKSPACE
         const val TEMPLATES_DIR = "Templates"
         const val GENERAL_DIR = "General"
+        const val TRASH_PREFIX = ".KOTHAPAD/trash/"
         private const val META_SCHEMA_VERSION = 1
         private const val WORKSPACE_SCHEMA_VERSION = 1
     }
@@ -177,8 +180,15 @@ class VaultNoteRepository(
         loadMetadata(vaultDoc)
         loadWorkspace(vaultDoc)
 
-        // Start background indexing
-        startVaultScan(vaultDoc)
+        // Perform initial vault scan synchronously so all notes & trash are indexed when onVaultOpened completes
+        _isScanning.value = true
+        _scanProgress.value = "Indexing notes..."
+        try {
+            scanVaultRecursive(vaultDoc)
+        } finally {
+            _isScanning.value = false
+            _scanProgress.value = null
+        }
     }
 
     fun startVaultScan(vaultDoc: DocumentFile) {
@@ -386,7 +396,9 @@ class VaultNoteRepository(
                     highlightColor = if (obj.has("highlightColor") && !obj.isNull("highlightColor")) obj.optString("highlightColor") else null,
                     fontSizeModifier = obj.optDouble("fontSizeModifier", 0.0).toFloat(),
                     tags = obj.optString("tags", ""),
-                    sessionDurationSec = obj.optLong("sessionDurationSec", 0L)
+                    sessionDurationSec = obj.optLong("sessionDurationSec", 0L),
+                    originalRelPath = if (obj.has("originalRelPath") && !obj.isNull("originalRelPath")) obj.optString("originalRelPath") else null,
+                    trashFileName = if (obj.has("trashFileName") && !obj.isNull("trashFileName")) obj.optString("trashFileName") else null
                 )
                 metadataMap[relPath] = meta
             }
@@ -414,6 +426,8 @@ class VaultNoteRepository(
                 obj.put("fontSizeModifier", meta.fontSizeModifier.toDouble())
                 obj.put("tags", meta.tags)
                 obj.put("sessionDurationSec", meta.sessionDurationSec)
+                if (meta.originalRelPath != null) obj.put("originalRelPath", meta.originalRelPath)
+                if (meta.trashFileName != null) obj.put("trashFileName", meta.trashFileName)
                 notesObj.put(path, obj)
             }
             root.put("notes", notesObj)
